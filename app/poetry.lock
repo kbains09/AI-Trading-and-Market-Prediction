@@ -252,6 +252,27 @@ webencodings = "*"
 css = ["tinycss2 (>=1.1.0,<1.5)"]
 
 [[package]]
+name = "build"
+version = "1.3.0"
+description = "A simple, correct Python build frontend"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "build-1.3.0-py3-none-any.whl", hash = "sha256:7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4"},
+    {file = "build-1.3.0.tar.gz", hash = "sha256:698edd0ea270bde950f53aed21f3a0135672206f3911e0176261a31e0e07b397"},
+]
+
+[package.dependencies]
+colorama = {version = "*", markers = "os_name == \"nt\""}
+packaging = ">=19.1"
+pyproject_hooks = "*"
+
+[package.extras]
+uv = ["uv (>=0.1.18)"]
+virtualenv = ["virtualenv (>=20.11) ; python_version < \"3.10\"", "virtualenv (>=20.17) ; python_version >= \"3.10\" and python_version < \"3.14\"", "virtualenv (>=20.31) ; python_version >= \"3.14\""]
+
+[[package]]
 name = "certifi"
 version = "2025.8.3"
 description = "Python package for providing Mozilla's CA Bundle."
@@ -450,12 +471,12 @@ version = "0.4.6"
 description = "Cross-platform colored terminal text."
 optional = false
 python-versions = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,>=2.7"
-groups = ["dev"]
-markers = "sys_platform == \"win32\""
+groups = ["main", "dev"]
 files = [
     {file = "colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"},
     {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
 ]
+markers = {main = "os_name == \"nt\"", dev = "sys_platform == \"win32\""}
 
 [[package]]
 name = "comm"
@@ -2891,6 +2912,18 @@ typing = ["typing-extensions ; python_version < \"3.10\""]
 xmp = ["defusedxml"]
 
 [[package]]
+name = "pip"
+version = "25.2"
+description = "The PyPA recommended tool for installing Python packages."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "pip-25.2-py3-none-any.whl", hash = "sha256:6d67a2b4e7f14d8b31b8b52648866fa717f45a1eb70e83002f4331d07e953717"},
+    {file = "pip-25.2.tar.gz", hash = "sha256:578283f006390f85bb6282dffb876454593d637f5d1be494b5202ce4877e71f2"},
+]
+
+[[package]]
 name = "platformdirs"
 version = "4.3.8"
 description = "A small Python package for determining appropriate platform-specific dirs, e.g. a `user data dir`."
@@ -3065,6 +3098,18 @@ files = [
 
 [package.extras]
 diagrams = ["jinja2", "railroad-diagrams"]
+
+[[package]]
+name = "pyproject-hooks"
+version = "1.2.0"
+description = "Wrappers to call pyproject.toml-based build backend hooks."
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "pyproject_hooks-1.2.0-py3-none-any.whl", hash = "sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913"},
+    {file = "pyproject_hooks-1.2.0.tar.gz", hash = "sha256:1e859bd5c40fae9448642dd871adf459e5e2084186e8d2c2a79a824c970da1f8"},
+]
 
 [[package]]
 name = "pytest"
@@ -3924,6 +3969,67 @@ numpy = "*"
 pandas = "*"
 
 [[package]]
+name = "ta-lib"
+version = "0.6.5"
+description = "Python wrapper for TA-Lib"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "ta_lib-0.6.5-cp310-cp310-macosx_13_0_x86_64.whl", hash = "sha256:97bc0623104d600e7b9e5aa4a1ee8e1eacc7a9ee6e716e7bfe08a413ebf5655c"},
+    {file = "ta_lib-0.6.5-cp310-cp310-macosx_14_0_arm64.whl", hash = "sha256:c1984aaabcbe626e4236a9cc739e27e6aa09b0ef822f2265391f3351c6fd094e"},
+    {file = "ta_lib-0.6.5-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:350b4e8e9391a1d185c8dc506f9c3d38fc72d15a632896bb9b21316555663e78"},
+    {file = "ta_lib-0.6.5-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:a7bc9f544570d426cd4ed2ce6e3558804339dbad5a7d95704f8e8b8c194dfd1a"},
+    {file = "ta_lib-0.6.5-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:be61b2b74c47ba592d0dc77e53047ced445fb348769c1946d3d1c3d7f191f431"},
+    {file = "ta_lib-0.6.5-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:2d9f3c09fb31169ade2ce2f5fa153e6b774efb7e2ada0e5d4d3973fe8d06697b"},
+    {file = "ta_lib-0.6.5-cp310-cp310-win32.whl", hash = "sha256:4c1d47d3b542dd5c64f73689ecbf1c7d4a57dc94f867bcdb04aa308c7c41d74e"},
+    {file = "ta_lib-0.6.5-cp310-cp310-win_amd64.whl", hash = "sha256:34720ea4b2ea334ef1bee2241981be81c18ec3c91ef7df7ace0a1e8b18353c73"},
+    {file = "ta_lib-0.6.5-cp310-cp310-win_arm64.whl", hash = "sha256:c24df7760d0c0b95ff8df1b7e889a40e708f06827492e63b059818fb0acaeff9"},
+    {file = "ta_lib-0.6.5-cp311-cp311-macosx_13_0_x86_64.whl", hash = "sha256:1879196fcd969f4e9cb8e9bfc6eab7a2230cc55f25ae514ea9201898c92eabc2"},
+    {file = "ta_lib-0.6.5-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:6622e14bd4dad6ea0550405446b534800670f26afe9a10ec667109f4dceb9246"},
+    {file = "ta_lib-0.6.5-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:9a64037ed173a7c9da4e047f265295ce7a284032cfdef3766d563d7e6b7e4fd2"},
+    {file = "ta_lib-0.6.5-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:3b8f6e054205562c1a83b2d1de8b9f3bac05d0b6bcda24df094442e21a4ffd8f"},
+    {file = "ta_lib-0.6.5-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:4ea0b4abf31e776ff521240d2f072117e7aba3236e79ffc14aa641bb354cc59a"},
+    {file = "ta_lib-0.6.5-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:501ea5a5f409091ffb7dbb27bd2f0dfecda59630122656cb385cf10a1d49e57e"},
+    {file = "ta_lib-0.6.5-cp311-cp311-win32.whl", hash = "sha256:ee165b502aa8b00bdf50d7b18233cc5d21113bf648a0ab3422dc09af9a1e805a"},
+    {file = "ta_lib-0.6.5-cp311-cp311-win_amd64.whl", hash = "sha256:20872ebd5fe3bf20907e9b2b61da52648e1044fc7f5e1cd7f5f02b3028734adc"},
+    {file = "ta_lib-0.6.5-cp311-cp311-win_arm64.whl", hash = "sha256:394195b7869608ae6b61e3e19ec0cb7196ad0c164fd0518a2a4ab4363fcd8e79"},
+    {file = "ta_lib-0.6.5-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:fe6f65cc2f013765d287d9059c50c52edf0f117305082981e6ac80de11a19aa2"},
+    {file = "ta_lib-0.6.5-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:cf65438c7c4869bfcef6be1a95e1ff212a432201dd4faa0b35a47f2156db8454"},
+    {file = "ta_lib-0.6.5-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:0d04ec78a33c3d35a32f3aed8d320be404eda2a95ec3d17d3aa8dbf96e311a9f"},
+    {file = "ta_lib-0.6.5-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:585a84b9fb0415dc88abbc09afb4b285d27137f7dab4b6a5c1e255afc1ea5ed0"},
+    {file = "ta_lib-0.6.5-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:9588a6f05291a14de8f2167018a1150a05fd26f4a298484b0e8476421c156bd0"},
+    {file = "ta_lib-0.6.5-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:393583526a37d55c2557688bd9f6cf66c95eee87f24ca58cc1136ef42266e2f8"},
+    {file = "ta_lib-0.6.5-cp312-cp312-win32.whl", hash = "sha256:feb356b6be4fbbebc11eb6b636b41d783575ab8e6c8762963d6c5d5f348b1634"},
+    {file = "ta_lib-0.6.5-cp312-cp312-win_amd64.whl", hash = "sha256:666c4043511dfa26748215aadba4f297589a87387f56276d35e555a6f74dc802"},
+    {file = "ta_lib-0.6.5-cp312-cp312-win_arm64.whl", hash = "sha256:461a7cbe14f42c2637d94667f4bf55bb55ef92dd1504a2286670769947e28c52"},
+    {file = "ta_lib-0.6.5-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:b1572653d0ea27d9961f579e929bdcedde928a4c3db44c25f1387e93440b34c2"},
+    {file = "ta_lib-0.6.5-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:60ead0fdd7547e0e6cf6db87190bef34e3a039106a9135fea3f3ccb9056e68b1"},
+    {file = "ta_lib-0.6.5-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:40d31e6c1ff9646870affc59d077dd340f4ccef6ae79de4e98625c06fbc702f2"},
+    {file = "ta_lib-0.6.5-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:ce4b4277448e0622b6a2d0f3b9833eddc5d9ca5eafb026d528ba6dadaea0c8a4"},
+    {file = "ta_lib-0.6.5-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:3f4aff21bafafcf49192d30a8d6c2db6fd1b569065a47577cf42f227cd8dfccb"},
+    {file = "ta_lib-0.6.5-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:fe1159baf26129d7dbb9013e4ff71a73c40b4e089d0db9105011da65e5f52946"},
+    {file = "ta_lib-0.6.5-cp313-cp313-win32.whl", hash = "sha256:5a40df4f0af832dc41353af9459df90fcada959e229a0509b28f9871de4d887b"},
+    {file = "ta_lib-0.6.5-cp313-cp313-win_amd64.whl", hash = "sha256:393339212cdc07779d68ad7868a2f380dfbea8e42b3fc77cbfce775142688404"},
+    {file = "ta_lib-0.6.5-cp313-cp313-win_arm64.whl", hash = "sha256:c5b55a1bc8ba8b5e7c6a810ce09f8e5e1011085740b244b6b203e47907f7a1e2"},
+    {file = "ta_lib-0.6.5-cp39-cp39-macosx_13_0_x86_64.whl", hash = "sha256:7e7a3cf45ff921f3a7a7b0fded8aea550e7ffdb2211314b9947f64560b315d8e"},
+    {file = "ta_lib-0.6.5-cp39-cp39-macosx_14_0_arm64.whl", hash = "sha256:6812076e01daa1f42827d2100eb5562516d80700926a66938cf3b79c90ddc42a"},
+    {file = "ta_lib-0.6.5-cp39-cp39-manylinux_2_28_aarch64.whl", hash = "sha256:2673c9f13642fef64df86f285d57daa204d8f1535b394ce055d2b226c9ce4921"},
+    {file = "ta_lib-0.6.5-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:3dcdb4165ed1b4916751fd53c043b042f359838d2676fcb326daaf2060e5132a"},
+    {file = "ta_lib-0.6.5-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:daac2a743cc75308b9a58be53c4eaf41491bc71c8df50240fc8eae97e2a5ad7c"},
+    {file = "ta_lib-0.6.5-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:036f9c40e98ad3d22866d4162103cd07320ed482c23be6adc070331e5539df84"},
+    {file = "ta_lib-0.6.5-cp39-cp39-win32.whl", hash = "sha256:822217323f38d5576875e2c85a02b76cb7f7131524c0786c8b4064cf0f07f728"},
+    {file = "ta_lib-0.6.5-cp39-cp39-win_amd64.whl", hash = "sha256:fe47f58cbf16eab3f400a6700759507c19ad6969a7fee9b9c934d21c799874e6"},
+    {file = "ta_lib-0.6.5-cp39-cp39-win_arm64.whl", hash = "sha256:387e9c122ace266d9e80781489d4cf510a0cf4854fa158683fc2a627fa86e8f2"},
+    {file = "ta_lib-0.6.5.tar.gz", hash = "sha256:bc3100799b51318c1054f5f5b76f4b0a2f1a6d12625200880e81ea8a8773ff75"},
+]
+
+[package.dependencies]
+build = "*"
+numpy = "*"
+pip = "*"
+
+[[package]]
 name = "terminado"
 version = "0.18.1"
 description = "Tornado websocket backend for the Xterm.js Javascript terminal emulator library."
@@ -4437,4 +4543,4 @@ repair = ["scipy (>=1.6.3)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13"
-content-hash = "9029423376a3a725d91f916c274fbbb17598abbc1ecd8843bfba1313d3d0be4b"
+content-hash = "579d11dfa54a7b1ddcc3675b076e3683995f2d64daa71fa49375d2ac8cf8d668"
