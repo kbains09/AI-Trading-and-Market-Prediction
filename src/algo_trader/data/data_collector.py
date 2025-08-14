@@ -1,4 +1,3 @@
-# src/algo_trader/data/data_collector.py
 import yfinance as yf
 import pandas as pd
 from pathlib import Path
