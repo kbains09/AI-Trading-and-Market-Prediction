@@ -1,0 +1,185 @@
+from __future__ import annotations
+import os
+import math
+import pathlib as pl
+from typing import Optional, List
+
+import numpy as np
+import pandas as pd
+import typer
+
+app = typer.Typer(add_completion=False)
+
+def _safe_pct_change(s: pd.Series, periods: int = 1) -> pd.Series:
+    return s.pct_change(periods=periods).replace([np.inf, -np.inf], np.nan)
+
+def _log_return(close: pd.Series, periods: int = 1) -> pd.Series:
+    # log(Price_t / Price_{t-1})
+    return np.log(close / close.shift(periods))
+
+def _ema(s: pd.Series, span: int) -> pd.Series:
+    return s.ewm(span=span, adjust=False, min_periods=span).mean()
+
+def _sma(s: pd.Series, window: int) -> pd.Series:
+    return s.rolling(window, min_periods=window).mean()
+
+def _rsi(close: pd.Series, window: int = 14) -> pd.Series:
+    delta = close.diff()
+    up = np.where(delta > 0, delta, 0.0)
+    down = np.where(delta < 0, -delta, 0.0)
+    roll_up = pd.Series(up, index=close.index).rolling(window).mean()
+    roll_down = pd.Series(down, index=close.index).rolling(window).mean()
+    rs = roll_up / roll_down
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def _macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+    ema_fast = _ema(close, fast)
+    ema_slow = _ema(close, slow)
+    macd = ema_fast - ema_slow
+    signal_line = _ema(macd, signal)
+    hist = macd - signal_line
+    return macd, signal_line, hist
+
+def _bollinger(close: pd.Series, window: int = 20, num_std: float = 2.0):
+    ma = _sma(close, window)
+    std = close.rolling(window, min_periods=window).std()
+    upper = ma + num_std * std
+    lower = ma - num_std * std
+    width = (upper - lower) / ma
+    return ma, upper, lower, width
+
+def _true_range(high: pd.Series, low: pd.Series, close: pd.Series):
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        (high - low),
+        (high - prev_close).abs(),
+        (low - prev_close).abs()
+    ], axis=1).max(axis=1)
+    return tr
+
+def _atr(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 14) -> pd.Series:
+    tr = _true_range(high, low, close)
+    return tr.rolling(window, min_periods=window).mean()
+
+def _rolling_vol(returns: pd.Series, window: int = 20) -> pd.Series:
+    return returns.rolling(window, min_periods=window).std()
+
+def _add_lags(df: pd.DataFrame, cols: List[str], lags: int = 3) -> pd.DataFrame:
+    for col in cols:
+        for k in range(1, lags + 1):
+            df[f"{col}_lag{k}"] = df[col].shift(k)
+    return df
+
+def _infer_ticker_from_path(path: pl.Path) -> str:
+    # e.g., data/raw/AAPL.csv → AAPL
+    name = path.stem
+    return name.split("_")[0].upper()
+
+def engineer_features(
+    df: pd.DataFrame,
+    rsi_window: int = 14,
+    atr_window: int = 14,
+    bb_window: int = 20,
+    ema_fast: int = 12,
+    ema_slow: int = 26,
+    macd_signal: int = 9,
+    vol_window: int = 20,
+) -> pd.DataFrame:
+    df = df.copy()
+    df = df.sort_values("Date").reset_index(drop=True)
+
+    # Basic returns
+    df["return_1d"] = _safe_pct_change(df["Close"], 1)
+    df["logret_1d"] = _log_return(df["Close"], 1)
+
+    # SMA/EMA
+    df[f"SMA_{bb_window}"] = _sma(df["Close"], bb_window)
+    df[f"EMA_{ema_fast}"] = _ema(df["Close"], ema_fast)
+    df[f"EMA_{ema_slow}"] = _ema(df["Close"], ema_slow)
+
+    # RSI
+    df[f"RSI_{rsi_window}"] = _rsi(df["Close"], rsi_window)
+
+    # MACD
+    macd, macd_sig, macd_hist = _macd(df["Close"], ema_fast, ema_slow, macd_signal)
+    df["MACD"] = macd
+    df["MACD_signal"] = macd_sig
+    df["MACD_hist"] = macd_hist
+
+    # Bollinger
+    bb_ma, bb_up, bb_lo, bb_w = _bollinger(df["Close"], bb_window, 2.0)
+    df[f"BB_MA_{bb_window}"] = bb_ma
+    df[f"BB_UP_{bb_window}"] = bb_up
+    df[f"BB_LO_{bb_window}"] = bb_lo
+    df[f"BB_WIDTH_{bb_window}"] = bb_w
+    df["BB_%B"] = (df["Close"] - bb_lo) / (bb_up - bb_lo)
+
+    # ATR
+    df[f"ATR_{atr_window}"] = _atr(df["High"], df["Low"], df["Close"], atr_window)
+    df["HL_spread"] = df["High"] - df["Low"]
+    df["OC_spread"] = (df["Close"] - df["Open"]).abs()
+
+    # Rolling volatility on returns
+    df[f"vol_{vol_window}"] = _rolling_vol(df["return_1d"], vol_window)
+
+    # Target(s)
+    df["next_return_1d"] = df["return_1d"].shift(-1)
+    df["target_up"] = (df["next_return_1d"] > 0).astype(int)
+
+    # Optional: create a few lags to reduce leakage risk when modeling
+    lag_cols = [
+        "return_1d", "logret_1d",
+        f"SMA_{bb_window}", f"EMA_{ema_fast}", f"EMA_{ema_slow}",
+        f"RSI_{rsi_window}", "MACD", "MACD_signal", "MACD_hist",
+        f"BB_MA_{bb_window}", f"BB_UP_{bb_window}", f"BB_LO_{bb_window}", f"BB_WIDTH_{bb_window}", "BB_%B",
+        f"ATR_{atr_window}", "HL_spread", "OC_spread", f"vol_{vol_window}",
+    ]
+    df = _add_lags(df, lag_cols, lags=3)
+
+    # Drop rows with NaNs introduced by warm-ups if you prefer a clean training frame
+    # (You can also leave them and drop later right before modeling.)
+    return df
+
+def process_file(
+    infile: pl.Path,
+    outdir: pl.Path,
+    date_col: str = "Date"
+) -> pl.Path:
+    df = pd.read_csv(infile)
+    # Normalize schema
+    expected = {"Open", "High", "Low", "Close", "Volume"}
+    if date_col not in df.columns:
+        raise ValueError(f"Missing '{date_col}' in {infile}")
+    if not expected.issubset(set(df.columns)):
+        raise ValueError(f"CSV must contain {expected} in {infile}")
+
+    df[date_col] = pd.to_datetime(df[date_col], utc=False)
+    df = df.rename(columns={date_col: "Date"})
+    df = df.sort_values("Date").reset_index(drop=True)
+
+    features = engineer_features(df)
+
+    ticker = _infer_ticker_from_path(pl.Path(infile))
+    outpath = outdir / f"{ticker}_features.csv"
+    outdir.mkdir(parents=True, exist_ok=True)
+    features.to_csv(outpath, index=False)
+    return outpath
+
+@app.command()
+def run(
+    raw_dir: str = typer.Option("data/raw", help="Directory with raw CSVs"),
+    out_dir: str = typer.Option("data/processed", help="Directory for processed feature CSVs"),
+) -> None:
+    rawp = pl.Path(raw_dir)
+    outp = pl.Path(out_dir)
+    files = sorted(list(rawp.glob("*.csv")))
+    if not files:
+        typer.echo(f"[feature_engineering] No CSVs found in {rawp}")
+        raise typer.Exit(1)
+    for f in files:
+        out = process_file(f, outp)
+        typer.echo(f"[feature_engineering] Wrote: {out}")
+
+if __name__ == "__main__":
+    app()
