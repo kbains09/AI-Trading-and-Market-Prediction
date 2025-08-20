@@ -4,3 +4,4 @@ data/labeled
 data/backtests
 models/xgboost
 __init__.py
+reports/
