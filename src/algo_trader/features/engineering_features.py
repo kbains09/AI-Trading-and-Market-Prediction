@@ -14,7 +14,6 @@ def _safe_pct_change(s: pd.Series, periods: int = 1) -> pd.Series:
     return s.pct_change(periods=periods).replace([np.inf, -np.inf], np.nan)
 
 def _log_return(close: pd.Series, periods: int = 1) -> pd.Series:
-    # log(Price_t / Price_{t-1})
     return np.log(close / close.shift(periods))
 
 def _ema(s: pd.Series, span: int) -> pd.Series:
@@ -30,8 +29,7 @@ def _rsi(close: pd.Series, window: int = 14) -> pd.Series:
     roll_up = pd.Series(up, index=close.index).rolling(window).mean()
     roll_down = pd.Series(down, index=close.index).rolling(window).mean()
     rs = roll_up / roll_down
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+    return 100 - (100 / (1 + rs))
 
 def _macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
     ema_fast = _ema(close, fast)
@@ -72,9 +70,7 @@ def _add_lags(df: pd.DataFrame, cols: List[str], lags: int = 3) -> pd.DataFrame:
     return df
 
 def _infer_ticker_from_path(path: pl.Path) -> str:
-    # e.g., data/raw/AAPL.csv → AAPL
-    name = path.stem
-    return name.split("_")[0].upper()
+    return path.stem.split("_")[0].upper()
 
 def engineer_features(
     df: pd.DataFrame,
@@ -86,48 +82,38 @@ def engineer_features(
     macd_signal: int = 9,
     vol_window: int = 20,
 ) -> pd.DataFrame:
-    df = df.copy()
-    df = df.sort_values("Date").reset_index(drop=True)
+    df = df.copy().sort_values("Date").reset_index(drop=True)
 
-    # Basic returns
-    df["return_1d"] = _safe_pct_change(df["Close"], 1)
-    df["logret_1d"] = _log_return(df["Close"], 1)
+    df["return_1d"] = _safe_pct_change(df["Close"])
+    df["logret_1d"] = _log_return(df["Close"])
 
-    # SMA/EMA
     df[f"SMA_{bb_window}"] = _sma(df["Close"], bb_window)
     df[f"EMA_{ema_fast}"] = _ema(df["Close"], ema_fast)
     df[f"EMA_{ema_slow}"] = _ema(df["Close"], ema_slow)
 
-    # RSI
     df[f"RSI_{rsi_window}"] = _rsi(df["Close"], rsi_window)
 
-    # MACD
     macd, macd_sig, macd_hist = _macd(df["Close"], ema_fast, ema_slow, macd_signal)
     df["MACD"] = macd
     df["MACD_signal"] = macd_sig
     df["MACD_hist"] = macd_hist
 
-    # Bollinger
-    bb_ma, bb_up, bb_lo, bb_w = _bollinger(df["Close"], bb_window, 2.0)
+    bb_ma, bb_up, bb_lo, bb_w = _bollinger(df["Close"], bb_window)
     df[f"BB_MA_{bb_window}"] = bb_ma
     df[f"BB_UP_{bb_window}"] = bb_up
     df[f"BB_LO_{bb_window}"] = bb_lo
     df[f"BB_WIDTH_{bb_window}"] = bb_w
     df["BB_%B"] = (df["Close"] - bb_lo) / (bb_up - bb_lo)
 
-    # ATR
     df[f"ATR_{atr_window}"] = _atr(df["High"], df["Low"], df["Close"], atr_window)
     df["HL_spread"] = df["High"] - df["Low"]
     df["OC_spread"] = (df["Close"] - df["Open"]).abs()
 
-    # Rolling volatility on returns
     df[f"vol_{vol_window}"] = _rolling_vol(df["return_1d"], vol_window)
 
-    # Target(s)
     df["next_return_1d"] = df["return_1d"].shift(-1)
     df["target_up"] = (df["next_return_1d"] > 0).astype(int)
 
-    # Optional: create a few lags to reduce leakage risk when modeling
     lag_cols = [
         "return_1d", "logret_1d",
         f"SMA_{bb_window}", f"EMA_{ema_fast}", f"EMA_{ema_slow}",
@@ -135,10 +121,7 @@ def engineer_features(
         f"BB_MA_{bb_window}", f"BB_UP_{bb_window}", f"BB_LO_{bb_window}", f"BB_WIDTH_{bb_window}", "BB_%B",
         f"ATR_{atr_window}", "HL_spread", "OC_spread", f"vol_{vol_window}",
     ]
-    df = _add_lags(df, lag_cols, lags=3)
-
-    # Drop rows with NaNs introduced by warm-ups if you prefer a clean training frame
-    # (You can also leave them and drop later right before modeling.)
+    df = _add_lags(df, lag_cols)
     return df
 
 def process_file(
@@ -147,16 +130,24 @@ def process_file(
     date_col: str = "Date"
 ) -> pl.Path:
     df = pd.read_csv(infile)
-    # Normalize schema
+
     expected = {"Open", "High", "Low", "Close", "Volume"}
     if date_col not in df.columns:
         raise ValueError(f"Missing '{date_col}' in {infile}")
     if not expected.issubset(set(df.columns)):
         raise ValueError(f"CSV must contain {expected} in {infile}")
 
-    df[date_col] = pd.to_datetime(df[date_col], utc=False)
+    # Convert expected numeric columns to float
+    for col in expected:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    df = df.dropna(subset=[date_col])
     df = df.rename(columns={date_col: "Date"})
     df = df.sort_values("Date").reset_index(drop=True)
+
+    # Drop any remaining rows with NaNs in numeric columns
+    df = df.dropna(subset=list(expected))
 
     features = engineer_features(df)
 
@@ -173,7 +164,7 @@ def run(
 ) -> None:
     rawp = pl.Path(raw_dir)
     outp = pl.Path(out_dir)
-    files = sorted(list(rawp.glob("*.csv")))
+    files = sorted(rawp.glob("*.csv"))
     if not files:
         typer.echo(f"[feature_engineering] No CSVs found in {rawp}")
         raise typer.Exit(1)

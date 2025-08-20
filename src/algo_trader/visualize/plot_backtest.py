@@ -28,17 +28,15 @@ def _rolling_sharpe(ret: pd.Series, window: int = 63, trading_days: int = 252) -
 
 
 def _ensure_two_cols(df: pd.DataFrame) -> pd.DataFrame:
-    # Keep only the columns we need and drop NaNs
     cols = ["cumulative_market_return", "cumulative_strategy_return"]
     missing = [c for c in cols if c not in df.columns]
     if missing:
         raise ValueError(f"Backtest CSV is missing required columns: {missing}")
-    out = df[cols].dropna(how="any").copy()
-    return out
+    return df[cols].dropna(how="any").copy()
 
 
-@app.callback()
-def main(
+@app.command()
+def plot_backtest(
     ticker: str = typer.Option(..., help="Ticker symbol, e.g., AAPL"),
     backtest_dir: str = typer.Option("data/backtests", help="Directory with backtest results"),
     logy: bool = typer.Option(False, help="Use log scale for equity plot"),
@@ -52,23 +50,22 @@ def main(
     Plot strategy vs market cumulative returns, Underwater (drawdown), and Rolling Sharpe.
 
     Usage:
-      poetry run python src/algo_trader/plot_backtest.py --ticker AAPL --logy --save-prefix reports/plots/AAPL
-      poetry run python src/algo_trader/plot_backtest.py --ticker AAPL --no-show --save-prefix reports/plots/AAPL
+      poetry run python -m src.algo_trader.visualize.plot_backtest plot-backtest --ticker AAPL --logy --save-prefix reports/plots/AAPL
+      poetry run python -m src.algo_trader.visualize.plot_backtest plot-backtest --ticker AAPL --no-show --save-prefix reports/plots/AAPL
     """
     backtest_path = pl.Path(backtest_dir) / f"{ticker}_backtest.csv"
     if not backtest_path.exists():
         typer.echo(f"❌ Backtest file not found: {backtest_path}")
         raise typer.Exit(code=1)
 
-    # Optional manifest to enrich titles
+    # Optional manifest
     manifest_path = pl.Path(backtest_dir) / f"{ticker}_backtest.manifest.json"
     manifest = _load_manifest(manifest_path)
     m = manifest.get("metrics", {})
     sharpe_txt = f" | Sharpe {m.get('sharpe'):.2f}" if isinstance(m.get("sharpe"), (int, float)) else ""
-    cagr = m.get("cagr")
-    cagr_txt = f" | CAGR {cagr:.2%}" if isinstance(cagr, (int, float)) else ""
+    cagr_txt = f" | CAGR {m.get('cagr'):.2%}" if isinstance(m.get("cagr"), (int, float)) else ""
 
-    # Load & prep data
+    # Load CSV
     df = pd.read_csv(backtest_path)
     if "Date" not in df.columns:
         typer.echo("❌ Backtest CSV must include a 'Date' column.")
@@ -77,7 +74,7 @@ def main(
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Date"]).set_index("Date").sort_index()
 
-    # Keep essential columns and harden NaNs
+    # Filter and clean
     core = _ensure_two_cols(df)
 
     # ---- Plot 1: Equity curves ----
@@ -107,17 +104,16 @@ def main(
     if "strategy_return" in df.columns:
         ret = pd.to_numeric(df["strategy_return"], errors="coerce").fillna(0.0)
     else:
-        # Derive returns from cumulative curve if per-bar returns absent
         ret = core["cumulative_strategy_return"].pct_change().fillna(0.0)
 
-    rs = _rolling_sharpe(ret, window=window, trading_days=252)
+    rs = _rolling_sharpe(ret, window=window)
     fig3 = plt.figure(figsize=(12, 2.8))
     plt.plot(rs)
     plt.title(f"{ticker} - Rolling Sharpe ({window}d)")
     plt.grid(True)
     plt.tight_layout()
 
-    # ---- Save files if requested ----
+    # ---- Save if needed ----
     if save_prefix:
         base = pl.Path(save_prefix)
         base.parent.mkdir(parents=True, exist_ok=True)
@@ -126,7 +122,6 @@ def main(
         fig3.savefig(base.with_suffix("").as_posix() + "_rollsharpe.png", dpi=180, bbox_inches="tight")
         typer.echo(f"💾 Saved plots to prefix: {base}")
 
-    # ---- Show or close ----
     if show:
         plt.show()
     else:

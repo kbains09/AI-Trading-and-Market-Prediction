@@ -4,11 +4,15 @@ from pathlib import Path
 from typing import Iterable, Optional
 import logging
 from datetime import date
+import typer
+
+app = typer.Typer(add_completion=False)
 
 DATA_DIR = Path("data/raw")
 DEFAULT_TICKERS = ["AAPL", "TSLA", "MSFT", "BTC-USD"]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
 
 def fetch_stock_data(
     ticker: str,
@@ -21,32 +25,62 @@ def fetch_stock_data(
         try:
             logging.info(f"Fetching {ticker} [{start} → {end}] interval={interval}")
             df = yf.download(ticker, start=start, end=end, interval=interval, progress=False)
-            if df is None or df.empty:
-                logging.warning(f"No data returned for {ticker} (attempt {attempt+1})")
-            else:
-                df = df.reset_index()
-                return df
+            if df.empty:
+                logging.warning(f"No data returned for {ticker} (attempt {attempt + 1})")
+                continue
+
+            df = df.copy()
+
+            # If Date is index, move it to a column
+            if isinstance(df.index, pd.DatetimeIndex):
+                df.reset_index(inplace=True)
+
+            # Insert Ticker as a column
+            df.insert(0, "Ticker", ticker)
+
+            # Flatten multi-index columns if needed
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
+
+            # Ensure column names are clean strings
+            df.columns = [str(col).strip() for col in df.columns]
+
+            return df
+
         except Exception as e:
-            logging.warning(f"Error fetching {ticker} (attempt {attempt+1}): {e}")
+            logging.warning(f"Error fetching {ticker} (attempt {attempt + 1}): {e}")
     return pd.DataFrame()
+
 
 def clean_frame(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
+
     df = df.copy()
-    if "Date" in df.columns:
-        df.sort_values("Date", inplace=True)
-        df.drop_duplicates(subset=["Date"], keep="last", inplace=True)
+    df.columns = [c.strip() for c in df.columns]
+
+    if "Date" not in df.columns:
+        logging.warning("Missing 'Date' column. Skipping sort/drop_duplicates.")
+        return df
+
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df = df.dropna(subset=["Date"])
+    df.sort_values("Date", inplace=True)
+    df.drop_duplicates(subset=["Date"], keep="last", inplace=True)
+
     numeric_cols = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
-    for c in numeric_cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     return df
+
 
 def save_to_csv(df: pd.DataFrame, ticker: str) -> Optional[Path]:
     if df.empty:
         logging.warning(f"Skip saving empty DataFrame for {ticker}")
         return None
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     tmp = DATA_DIR / f".{ticker}.csv.tmp"
     out = DATA_DIR / f"{ticker}.csv"
@@ -54,6 +88,7 @@ def save_to_csv(df: pd.DataFrame, ticker: str) -> Optional[Path]:
     tmp.replace(out)
     logging.info(f"Saved {ticker} → {out}")
     return out
+
 
 def run_batch(
     tickers: Iterable[str] = DEFAULT_TICKERS,
@@ -66,8 +101,14 @@ def run_batch(
         df = clean_frame(df)
         save_to_csv(df, t)
 
-def main():
-    run_batch()
+
+@app.command()
+def main(ticker: Optional[str] = None):
+    if ticker:
+        run_batch([ticker])
+    else:
+        run_batch()
+
 
 if __name__ == "__main__":
-    main()
+    app()
