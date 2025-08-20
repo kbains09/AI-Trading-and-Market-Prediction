@@ -5,3 +5,13 @@ data/backtests
 models/xgboost
 __init__.py
 reports/
+src/algo_trader/__pycache__
+src/algo_trader/visualize/__pycache__
+src/algo_trader/features/__pycache__
+src/algo_trader/models/__pycache__
+src/algo_trader/data/__pycache__
+src/algo_trader/cli/__pycache__
+src/algo_trader/live/__pycache__
+src/algo_trader/predict/__pycache__
+src/algo_trader/visualize/__pycache__
+src/algo_trader/visualize/__pycache__
