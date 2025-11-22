@@ -143,8 +143,8 @@ def _build_positions_from_models(
     X_dir = clean[dir_feats]
 
     # Regime predictions
-    reg_probs = model_reg.predict_proba(X_reg)  # shape (n, 3)
-    reg_class = reg_probs.argmax(axis=1)        # 0/1/2
+    reg_probs = model_reg.predict_proba(X_reg) 
+    reg_class = reg_probs.argmax(axis=1)
     reg_label_int = np.array([inv_regime_map.get(int(c), 0) for c in reg_class])
 
     # Map to strings for inspection
@@ -155,10 +155,10 @@ def _build_positions_from_models(
     reg_conf = reg_probs.max(axis=1)
 
     # Direction predictions
-    dir_probs = model_dir.predict_proba(X_dir)  # shape (n, 2) -> [DOWN, UP]
+    dir_probs = model_dir.predict_proba(X_dir)
     prob_down = dir_probs[:, 0]
     prob_up = dir_probs[:, 1]
-    dir_label_bin = (prob_up >= 0.5).astype(int)  # 1 = UP, 0 = DOWN
+    dir_label_bin = (prob_up >= 0.5).astype(int)
     dir_label_str = np.where(dir_label_bin == 1, "UP", "DOWN")
 
     # Trading rule
@@ -194,6 +194,16 @@ def run_backtest(
     max_leverage: float = typer.Option(3.0, help="Max leverage cap when vol targeting"),
     rf_annual: float = typer.Option(0.0, help="Annual risk-free rate for Sharpe calc"),
     trading_days: int = typer.Option(252, help="Periods per year (252 for daily)"),
+    up_threshold: float = typer.Option(
+        0.55,
+        "--up-threshold",
+        help="Min P(UP) to go long in TREND regime.",
+    ),
+    down_threshold: float = typer.Option(
+        0.45,
+        "--down-threshold",
+        help="Max P(UP) to go short in MEAN-REVERSION regime.",
+    ),
 ):
     """
     Backtest a regime + direction strategy for a specific ticker using:
@@ -233,14 +243,19 @@ def run_backtest(
 
     # Build positions from models
     try:
-        df_signals = _build_positions_from_models(df, regime_artifact, direction_artifact)
+        df_signals = _build_positions_from_models(
+            df,
+            regime_artifact,
+            direction_artifact,
+            up_thresh=up_threshold,
+            down_thresh=down_threshold,
+        )
     except Exception as e:
         typer.echo(f"❌ Failed to build positions: {e}")
         raise typer.Exit(1)
 
     # Optional: basic label accuracies
     if "direction_5" in df_signals.columns:
-        # Convert direction_5 (-1/+1) → 0/1
         y_dir = (df_signals["direction_5"] == 1).astype(int)
         y_hat_dir = (df_signals["direction_prob_up"] >= 0.5).astype(int)
         dir_acc = float((y_dir == y_hat_dir).mean())
@@ -255,6 +270,23 @@ def run_backtest(
         typer.echo(f"✅ Regime accuracy for {ticker}: {regime_acc:.4f}")
     else:
         regime_acc = float("nan")
+
+    # --- NEW: signal counts and exposure ---
+    long_count = int((df_signals["prediction"] > 0).sum())
+    short_count = int((df_signals["prediction"] < 0).sum())
+    neutral_count = int((df_signals["prediction"] == 0).sum())
+    total = len(df_signals)
+    exposure = float((df_signals["prediction"].abs() > 0).mean()) if total > 0 else float("nan")
+    avg_abs_pos = float(df_signals["prediction"].abs().mean()) if total > 0 else float("nan")
+
+    typer.echo(
+        f"📌 Signals — long: {long_count}, short: {short_count}, neutral: {neutral_count}, "
+        f"total: {total}"
+    )
+    typer.echo(
+        f"📡 Market exposure: {exposure:.2%} | Avg |position|: {avg_abs_pos:.3f} "
+        f"(up_thresh={up_threshold:.2f}, down_thresh={down_threshold:.2f})"
+    )
 
     # Run PnL simulation
     results = simulate_trades(
@@ -317,6 +349,8 @@ def run_backtest(
         "max_leverage": max_leverage,
         "rf_annual": rf_annual,
         "trading_days": trading_days,
+        "up_threshold": up_threshold,
+        "down_threshold": down_threshold,
         "metrics": {
             "final_strategy_multiple": final_strat_return,
             "final_market_multiple": final_market_return,
@@ -328,6 +362,12 @@ def run_backtest(
             "hit_rate": strat_hit_rate,
             "direction_accuracy": dir_acc,
             "regime_accuracy": regime_acc,
+            "market_exposure": exposure,
+            "avg_abs_position": avg_abs_pos,
+            "num_long": long_count,
+            "num_short": short_count,
+            "num_neutral": neutral_count,
+            "num_total": total,
         },
         "output_csv": str(outpath_csv),
     }
