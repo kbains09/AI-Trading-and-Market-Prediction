@@ -1,121 +1,128 @@
 from __future__ import annotations
 
 import pathlib as pl
-from typing import List
+from typing import Dict, Tuple
 
 import joblib
 import numpy as np
 import pandas as pd
 import typer
-import yaml
 from xgboost import XGBClassifier
+
+from ..features.feature_set import LIVE_FEATURE_COLUMNS
 
 app = typer.Typer(add_completion=False)
 
-# Load config
-PROJECT_CONFIG = yaml.safe_load(pl.Path("config/project.yaml").read_text())
-FEATURES_CONFIG = yaml.safe_load(pl.Path("config/features.yaml").read_text())
 
-DATA_LABELED = pl.Path(PROJECT_CONFIG["data"]["labeled_dir"])
-MODELS_DIR = pl.Path(PROJECT_CONFIG["data"]["models_dir"]) if "models_dir" in PROJECT_CONFIG["data"] else pl.Path("models/xgboost")
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
+def _chronological_split(
+    df: pd.DataFrame,
+    train_frac: float = 0.6,
+    val_frac: float = 0.2,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Simple time-ordered split: first train, then val, then test.
+    Assumes df is already sorted chronologically.
+    """
+    n = len(df)
+    train_end = int(n * train_frac)
+    val_end = int(n * (train_frac + val_frac))
 
-
-def _select_feature_columns(df: pd.DataFrame) -> List[str]:
-    """Pick model features using prefixes from features.yaml."""
-    prefixes = FEATURES_CONFIG["training"]["feature_prefixes"]
-    exclude_prefixes = FEATURES_CONFIG["training"]["exclude_prefixes"]
-
-    cols: List[str] = []
-    for col in df.columns:
-        if any(col.startswith(p) for p in prefixes) and not any(
-            col.startswith(e) for e in exclude_prefixes
-        ):
-            cols.append(col)
-    return cols
-
-
-def _split_by_date(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Split df into train/val/test using project.yaml date ranges."""
-    splits = PROJECT_CONFIG["splits"]
-    train_start = pd.to_datetime(splits["train"]["start"])
-    train_end = pd.to_datetime(splits["train"]["end"])
-    val_start = pd.to_datetime(splits["validation"]["start"])
-    val_end = pd.to_datetime(splits["validation"]["end"])
-    test_start = pd.to_datetime(splits["test"]["start"])
-    test_end = pd.to_datetime(splits["test"]["end"])
-
-    df = df.copy()
-    df["Date"] = pd.to_datetime(df["Date"])
-
-    train = df[(df["Date"] >= train_start) & (df["Date"] <= train_end)]
-    val = df[(df["Date"] >= val_start) & (df["Date"] <= val_end)]
-    test = df[(df["Date"] >= test_start) & (df["Date"] <= test_end)]
-
+    train = df.iloc[:train_end].copy()
+    val = df.iloc[train_end:val_end].copy()
+    test = df.iloc[val_end:].copy()
     return train, val, test
 
 
 @app.command()
 def main(
-    ticker: str = typer.Argument(..., help="Ticker to train regime model for"),
-    n_estimators: int = typer.Option(300, help="Number of trees"),
-    max_depth: int = typer.Option(4, help="Max tree depth"),
-    learning_rate: float = typer.Option(0.05, help="Learning rate"),
-    subsample: float = typer.Option(0.8, help="Subsample ratio"),
+    ticker: str = typer.Argument(..., help="Ticker symbol, e.g. AAPL"),
+    labeled_dir: str = typer.Option("data/labeled", help="Directory with *_labeled.csv"),
+    model_dir: str = typer.Option("models/xgboost", help="Directory to save regime models"),
 ):
     """
-    Train a regime classification model (trend / mean-reversion / neutral)
-    for a single ticker, using the 'regime_trend_meanrev' label.
+    Train a regime classification model on the 'regime_trend_meanrev' label.
+
+    Original label space:
+        -1 = mean-reversion
+         0 = neutral / sideway
+         1 = trend
+
+    We encode to {0, 1, 2} for XGBoost and save a mapping dict.
+
+    Saves an artifact dict to:
+      models/xgboost/{TICKER}_regime_model.pkl
+
+    Artifact schema:
+      {
+        "model": XGBClassifier,
+        "feature_cols": [ ... ],
+        "regime_map": { original_label_int -> encoded_class_int }
+      }
     """
-    parquet_path = DATA_LABELED / "market_patterns.parquet"
-    if not parquet_path.exists():
-        typer.echo(f"[train_regime] ❌ Missing parquet: {parquet_path}")
+    labeled_path = pl.Path(labeled_dir) / f"{ticker}_labeled.csv"
+    model_dir_path = pl.Path(model_dir)
+    model_dir_path.mkdir(parents=True, exist_ok=True)
+
+    if not labeled_path.exists():
+        typer.echo(f"[train_regime] ❌ Labeled file not found: {labeled_path}")
         raise typer.Exit(1)
 
-    df_all = pd.read_parquet(parquet_path)
+    df = pd.read_csv(labeled_path)
 
-    if "ticker" not in df_all.columns:
-        typer.echo("[train_regime] ❌ 'ticker' column not found in merged dataset")
+    if "regime_trend_meanrev" not in df.columns:
+        typer.echo("[train_regime] ❌ Column 'regime_trend_meanrev' not found in labeled data.")
         raise typer.Exit(1)
 
-    df = df_all[df_all["ticker"] == ticker].copy()
-    if df.empty:
-        typer.echo(f"[train_regime] ❌ No rows found for ticker {ticker}")
+    # Drop rows with missing labels
+    df = df.dropna(subset=["regime_trend_meanrev"]).reset_index(drop=True)
+
+    # Original integer labels
+    y_orig = df["regime_trend_meanrev"].astype(int)
+    unique_orig = sorted(y_orig.unique())
+    typer.echo(f"[train_regime] Raw regime label classes: {unique_orig}")
+
+    # Build a stable mapping orig_label -> encoded_label (0..K-1)
+    regime_map: Dict[int, int] = {orig: idx for idx, orig in enumerate(unique_orig)}
+    y_enc = y_orig.map(regime_map).astype(int)
+
+    typer.echo(f"[train_regime] Encoded regime label classes: {sorted(y_enc.unique().tolist())}")
+    typer.echo(f"[train_regime] Regime map (orig -> enc): {regime_map}")
+
+    # 🔑 Use SAME feature set as live / backtest
+    available = [c for c in LIVE_FEATURE_COLUMNS if c in df.columns]
+    missing = sorted(set(LIVE_FEATURE_COLUMNS) - set(available))
+    if missing:
+        typer.echo(f"[train_regime] ⚠️ Missing features in labeled data (ignored): {missing}")
+
+    if not available:
+        typer.echo("[train_regime] ❌ No usable features found from LIVE_FEATURE_COLUMNS.")
         raise typer.Exit(1)
 
-    # Select features & label
-    feature_cols = _select_feature_columns(df)
-    label_col = "regime_trend_meanrev"
+    X = df[available].copy()
 
-    if label_col not in df.columns:
-        typer.echo(f"[train_regime] ❌ Label column '{label_col}' not found")
-        raise typer.Exit(1)
+    X = X.dropna(axis=1, how="all") 
+    X = X.fillna(0.0)              
 
-    # Map regimes (-1,0,1) → (0,1,2) for modeling
-    regime_map = {-1: 0, 0: 1, 1: 2}
-    df[label_col] = df[label_col].map(regime_map)
+    # Merge X and encoded y for a clean chronological split
+    combined = pd.concat([X, y_enc.rename("regime_enc")], axis=1)
 
-    # Drop NaNs
-    df = df.dropna(subset=feature_cols + [label_col]).reset_index(drop=True)
-
-    train_df, val_df, test_df = _split_by_date(df)
-
-    def _xy(frame: pd.DataFrame):
-        return frame[feature_cols].values, frame[label_col].values.astype(int)
-
-    X_train, y_train = _xy(train_df)
-    X_val, y_val = _xy(val_df)
-    X_test, y_test = _xy(test_df)
+    train_df, val_df, test_df = _chronological_split(combined)
+    X_train, y_train = train_df[available], train_df["regime_enc"]
+    X_val, y_val = val_df[available], val_df["regime_enc"]
+    X_test, y_test = test_df[available], test_df["regime_enc"]
 
     typer.echo(f"[train_regime] 📊 Ticker: {ticker}")
-    typer.echo(f"[train_regime] Train size: {len(train_df)}, Val size: {len(val_df)}, Test size: {len(test_df)}")
+    typer.echo(
+        f"[train_regime] Train size: {len(X_train)}, "
+        f"Val size: {len(X_val)}, Test size: {len(X_test)}"
+    )
 
-    # XGBoost multi-class classifier
     model = XGBClassifier(
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        learning_rate=learning_rate,
-        subsample=subsample,
+        n_estimators=300,
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.9,
+        colsample_bytree=0.9,
         objective="multi:softprob",
         eval_metric="mlogloss",
         n_jobs=-1,
@@ -129,21 +136,29 @@ def main(
         verbose=False,
     )
 
-    # Simple test accuracy
-    test_preds = model.predict(X_test)
-    test_acc = (test_preds == y_test).mean() if len(y_test) > 0 else float("nan")
-    typer.echo(f"[train_regime] ✅ Test accuracy: {test_acc:.4f}")
+    # Evaluate on test set (encoded space)
+    y_pred_enc = model.predict(X_test)
+    acc_enc = float((y_pred_enc == y_test.values).mean())
 
-    # Save model
-    out_path = MODELS_DIR / f"{ticker}_regime_model.pkl"
-    joblib.dump(
-        {
-            "model": model,
-            "feature_cols": feature_cols,
-            "regime_map": regime_map,
-        },
-        out_path,
-    )
+    typer.echo(f"[train_regime] ✅ Test accuracy (encoded labels 0/1/2): {acc_enc:.4f}")
+
+    # Also compute accuracy in original label space (mainly for sanity)
+    inv_regime_map = {v: k for k, v in regime_map.items()}
+    y_test_orig = y_test.map(inv_regime_map)
+    y_pred_orig = pd.Series(y_pred_enc).map(inv_regime_map)
+    acc_orig = float((y_test_orig.values == y_pred_orig.values).mean())
+    typer.echo(f"[train_regime] ℹ️  Test accuracy (original label space): {acc_orig:.4f}")
+
+    # Save artifact (model + feature metadata + mapping)
+    artifact = {
+        "model": model,
+        "feature_cols": list(X.columns),
+        "regime_map": regime_map,
+    }
+
+    out_path = model_dir_path / f"{ticker}_regime_model.pkl"
+    joblib.dump(artifact, out_path)
+
     typer.echo(f"[train_regime] 💾 Saved regime model → {out_path}")
 
 

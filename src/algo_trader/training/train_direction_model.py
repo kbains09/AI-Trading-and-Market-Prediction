@@ -1,120 +1,127 @@
 from __future__ import annotations
 
 import pathlib as pl
-from typing import List
+from typing import Tuple
 
 import joblib
 import numpy as np
 import pandas as pd
 import typer
-import yaml
 from xgboost import XGBClassifier
+
+from ..features.feature_set import LIVE_FEATURE_COLUMNS
 
 app = typer.Typer(add_completion=False)
 
-# Load config
-PROJECT_CONFIG = yaml.safe_load(pl.Path("config/project.yaml").read_text())
-FEATURES_CONFIG = yaml.safe_load(pl.Path("config/features.yaml").read_text())
 
-DATA_LABELED = pl.Path(PROJECT_CONFIG["data"]["labeled_dir"])
-MODELS_DIR = pl.Path(PROJECT_CONFIG["data"]["models_dir"]) if "models_dir" in PROJECT_CONFIG["data"] else pl.Path("models/xgboost")
-MODELS_DIR.mkdir(parents=True, exist_ok=True)
+def _chronological_split(
+    df: pd.DataFrame,
+    train_frac: float = 0.6,
+    val_frac: float = 0.2,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Simple time-ordered split: first train, then val, then test.
+    Assumes df is already sorted chronologically.
+    """
+    n = len(df)
+    train_end = int(n * train_frac)
+    val_end = int(n * (train_frac + val_frac))
 
-
-def _select_feature_columns(df: pd.DataFrame) -> List[str]:
-    """Pick model features using prefixes from features.yaml."""
-    prefixes = FEATURES_CONFIG["training"]["feature_prefixes"]
-    exclude_prefixes = FEATURES_CONFIG["training"]["exclude_prefixes"]
-
-    cols: List[str] = []
-    for col in df.columns:
-        if any(col.startswith(p) for p in prefixes) and not any(
-            col.startswith(e) for e in exclude_prefixes
-        ):
-            cols.append(col)
-    return cols
-
-
-def _split_by_date(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Split df into train/val/test using project.yaml date ranges."""
-    splits = PROJECT_CONFIG["splits"]
-    train_start = pd.to_datetime(splits["train"]["start"])
-    train_end = pd.to_datetime(splits["train"]["end"])
-    val_start = pd.to_datetime(splits["validation"]["start"])
-    val_end = pd.to_datetime(splits["validation"]["end"])
-    test_start = pd.to_datetime(splits["test"]["start"])
-    test_end = pd.to_datetime(splits["test"]["end"])
-
-    df = df.copy()
-    df["Date"] = pd.to_datetime(df["Date"])
-
-    train = df[(df["Date"] >= train_start) & (df["Date"] <= train_end)]
-    val = df[(df["Date"] >= val_start) & (df["Date"] <= val_end)]
-    test = df[(df["Date"] >= test_start) & (df["Date"] <= test_end)]
-
+    train = df.iloc[:train_end].copy()
+    val = df.iloc[train_end:val_end].copy()
+    test = df.iloc[val_end:].copy()
     return train, val, test
 
 
 @app.command()
 def main(
-    ticker: str = typer.Argument(..., help="Ticker to train direction model for"),
-    n_estimators: int = typer.Option(400, help="Number of trees"),
-    max_depth: int = typer.Option(4, help="Max tree depth"),
-    learning_rate: float = typer.Option(0.05, help="Learning rate"),
-    subsample: float = typer.Option(0.8, help="Subsample ratio"),
+    ticker: str = typer.Argument(..., help="Ticker symbol, e.g. AAPL"),
+    labeled_dir: str = typer.Option("data/labeled", help="Directory with *_labeled.csv"),
+    model_dir: str = typer.Option("models/xgboost", help="Directory to save direction models"),
 ):
     """
-    Train a direction model for 5-day horizon (UP/DOWN),
-    using the 'direction_5' label.
+    Train a binary direction model on the 'direction_5' label.
+
+    - direction_5 is originally in {-1, 1}
+        * -1 = DOWN (mapped → 0)
+        *  1 = UP   (mapped → 1)
+
+    Saves an artifact dict to:
+      models/xgboost/{TICKER}_direction_model.pkl
+
+    Artifact schema:
+      {
+        "model": XGBClassifier,
+        "feature_cols": [ ... ]  # columns used for training / prediction
+      }
     """
-    parquet_path = DATA_LABELED / "market_patterns.parquet"
-    if not parquet_path.exists():
-        typer.echo(f"[train_direction] ❌ Missing parquet: {parquet_path}")
+    labeled_path = pl.Path(labeled_dir) / f"{ticker}_labeled.csv"
+    model_dir_path = pl.Path(model_dir)
+    model_dir_path.mkdir(parents=True, exist_ok=True)
+
+    if not labeled_path.exists():
+        typer.echo(f"[train_direction] ❌ Labeled file not found: {labeled_path}")
         raise typer.Exit(1)
 
-    df_all = pd.read_parquet(parquet_path)
+    df = pd.read_csv(labeled_path)
 
-    if "ticker" not in df_all.columns:
-        typer.echo("[train_direction] ❌ 'ticker' column not found in merged dataset")
+    if "direction_5" not in df.columns:
+        typer.echo("[train_direction] ❌ Column 'direction_5' not found in labeled data.")
         raise typer.Exit(1)
 
-    df = df_all[df_all["ticker"] == ticker].copy()
-    if df.empty:
-        typer.echo(f"[train_direction] ❌ No rows found for ticker {ticker}")
+    # Drop rows with missing labels
+    df = df.dropna(subset=["direction_5"]).reset_index(drop=True)
+
+    # 🎯 Label encoding: map {-1, 1} → {0, 1}
+    y_raw = df["direction_5"].astype(int)
+    unique_raw = sorted(y_raw.unique())
+    typer.echo(f"[train_direction] Raw label classes: {unique_raw}")
+
+    label_map = {-1: 0, 1: 1}
+    if not set(unique_raw).issubset(label_map.keys()):
+        typer.echo(f"[train_direction] ❌ Unexpected direction_5 classes: {unique_raw}")
         raise typer.Exit(1)
 
-    # Select features & label
-    feature_cols = _select_feature_columns(df)
-    label_col = "direction_5"
+    y = y_raw.map(label_map).astype(int)
+    typer.echo(f"[train_direction] Encoded label classes: {sorted(y.unique().tolist())}")
 
-    if label_col not in df.columns:
-        typer.echo(f"[train_direction] ❌ Label column '{label_col}' not found")
+    # Use SAME feature set as live / backtest
+    available = [c for c in LIVE_FEATURE_COLUMNS if c in df.columns]
+    missing = sorted(set(LIVE_FEATURE_COLUMNS) - set(available))
+    if missing:
+        typer.echo(f"[train_direction] ⚠️ Missing features in labeled data (ignored): {missing}")
+
+    if not available:
+        typer.echo("[train_direction] ❌ No usable features found from LIVE_FEATURE_COLUMNS.")
         raise typer.Exit(1)
 
-    # Map direction -1 / +1 → 0 / 1
-    df[label_col] = (df[label_col] == 1).astype(int)
+    X = df[available].copy()
 
-    # Drop NaNs
-    df = df.dropna(subset=feature_cols + [label_col]).reset_index(drop=True)
+    # Clean features
+    X = X.dropna(axis=1, how="all")  # drop columns that are entirely NaN
+    X = X.fillna(0.0)                # simple imputation for any remaining NaNs
 
-    train_df, val_df, test_df = _split_by_date(df)
+    # Merge X and y for a clean chronological split
+    combined = pd.concat([X, y.rename("direction_bin")], axis=1)
 
-    def _xy(frame: pd.DataFrame):
-        return frame[feature_cols].values, frame[label_col].values.astype(int)
-
-    X_train, y_train = _xy(train_df)
-    X_val, y_val = _xy(val_df)
-    X_test, y_test = _xy(test_df)
+    train_df, val_df, test_df = _chronological_split(combined)
+    X_train, y_train = train_df[available], train_df["direction_bin"]
+    X_val, y_val = val_df[available], val_df["direction_bin"]
+    X_test, y_test = test_df[available], test_df["direction_bin"]
 
     typer.echo(f"[train_direction] 📊 Ticker: {ticker}")
-    typer.echo(f"[train_direction] Train size: {len(train_df)}, Val size: {len(val_df)}, Test size: {len(test_df)}")
+    typer.echo(
+        f"[train_direction] Train size: {len(X_train)}, "
+        f"Val size: {len(X_val)}, Test size: {len(X_test)}"
+    )
 
     model = XGBClassifier(
-        n_estimators=n_estimators,
-        max_depth=max_depth,
-        learning_rate=learning_rate,
-        subsample=subsample,
-        objective="binary:logistic",
+        n_estimators=300,
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        objective="binary:logistic", 
         eval_metric="logloss",
         n_jobs=-1,
         tree_method="hist",
@@ -127,18 +134,22 @@ def main(
         verbose=False,
     )
 
-    test_preds = (model.predict_proba(X_test)[:, 1] > 0.5).astype(int) if len(y_test) > 0 else np.array([])
-    test_acc = (test_preds == y_test).mean() if len(y_test) > 0 else float("nan")
-    typer.echo(f"[train_direction] ✅ Test accuracy: {test_acc:.4f}")
+    # Evaluate on test set
+    prob_up = model.predict_proba(X_test)[:, 1]
+    y_pred = (prob_up >= 0.5).astype(int)
+    acc = float((y_pred == y_test.values).mean())
 
-    out_path = MODELS_DIR / f"{ticker}_direction_model.pkl"
-    joblib.dump(
-        {
-            "model": model,
-            "feature_cols": feature_cols,
-        },
-        out_path,
-    )
+    typer.echo(f"[train_direction] ✅ Test accuracy (encoded labels 0/1): {acc:.4f}")
+
+    # Save artifact (model + feature metadata)
+    artifact = {
+        "model": model,
+        "feature_cols": list(X.columns),
+    }
+
+    out_path = model_dir_path / f"{ticker}_direction_model.pkl"
+    joblib.dump(artifact, out_path)
+
     typer.echo(f"[train_direction] 💾 Saved direction model → {out_path}")
 
 
