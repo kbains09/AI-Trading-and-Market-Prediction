@@ -1,0 +1,158 @@
+# Configuration for feature engineering and model input selection
+
+features:
+  # --- returns / log-returns ---
+  - name: "logret_1"
+    type: "log_return"
+    params:
+      window: 1
+      price_field: "Close"
+
+  - name: "logret_5"
+    type: "log_return"
+    params:
+      window: 5
+      price_field: "Close"
+
+  - name: "logret_10"
+    type: "log_return"
+    params:
+      window: 10
+      price_field: "Close"
+
+  - name: "logret_20"
+    type: "log_return"
+    params:
+      window: 20
+      price_field: "Close"
+
+  # --- realized volatility on 1d log returns ---
+  - name: "vol_10"
+    type: "rolling_std"
+    params:
+      window: 10
+      source: "logret_1"
+
+  - name: "vol_20"
+    type: "rolling_std"
+    params:
+      window: 20
+      source: "logret_1"
+
+  # --- moving averages (trend) ---
+  - name: "SMA_10"
+    type: "sma"
+    params:
+      window: 10
+      price_field: "Close"
+
+  - name: "SMA_50"
+    type: "sma"
+    params:
+      window: 50
+      price_field: "Close"
+
+  - name: "SMA_200"
+    type: "sma"
+    params:
+      window: 200
+      price_field: "Close"
+
+  - name: "SMA_10_minus_SMA_50"
+    type: "difference"
+    params:
+      left: "SMA_10"
+      right: "SMA_50"
+
+  - name: "SMA_50_minus_SMA_200"
+    type: "difference"
+    params:
+      left: "SMA_50"
+      right: "SMA_200"
+
+  # --- EMA (if you already compute them) ---
+  - name: "EMA_10"
+    type: "ema"
+    params:
+      window: 10
+      price_field: "Close"
+
+  - name: "EMA_20"
+    type: "ema"
+    params:
+      window: 20
+      price_field: "Close"
+
+  # --- RSI ---
+  - name: "RSI_14"
+    type: "rsi"
+    params:
+      window: 14
+      price_field: "Close"
+
+  # --- Bollinger Bands width ---
+  - name: "BB_width_20"
+    type: "bollinger_width"
+    params:
+      window: 20
+      price_field: "Close"
+      num_std: 2.0
+
+  # --- ATR (volatility-based range) ---
+  - name: "ATR_14"
+    type: "atr"
+    params:
+      window: 14
+
+  # --- High/Low / Open/Close ranges ---
+  - name: "HL_range"
+    type: "range"
+    params:
+      high_field: "High"
+      low_field: "Low"
+
+  - name: "OC_range"
+    type: "range"
+    params:
+      high_field: "Close"
+      low_field: "Open"
+
+  # --- Volume features ---
+  - name: "vol_zscore_20"
+    type: "zscore"
+    params:
+      window: 20
+      field: "Volume"
+
+  # --- Relative strength vs benchmark (SPY) ---
+  - name: "rel_strength_20"
+    type: "relative_return"
+    params:
+      window: 20
+      benchmark: "SPY"
+      price_field: "Close"
+
+training:
+  # Column prefixes to include as features for models
+  feature_prefixes:
+    - "return"
+    - "logret"
+    - "SMA"
+    - "EMA"
+    - "RSI"
+    - "MACD"
+    - "BB_"
+    - "ATR"
+    - "HL_"
+    - "OC_"
+    - "vol"
+    - "rel_strength"
+
+  # Columns to explicitly drop if they exist
+  exclude_prefixes:
+    - "next_"
+    - "Target"
+    - "future_"
+    - "direction_"
+    - "regime_"
+    - "is_breakout"

@@ -1,0 +1,52 @@
+# High-level project configuration for algo_trader
+
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  labeled_dir: "data/labeled"
+  backtests_dir: "data/backtests"
+  models_dir: "models/xgboost"
+
+universe:
+  # mode = "list" for now; later you can switch to "file"
+  mode: "list"
+  tickers:
+    - "AAPL"
+    - "TSLA"
+    - "MSFT"
+    - "BTC-USD"
+  benchmark: "SPY"
+
+  # For later, when you want NYSE/TSX:
+  # mode: "file"
+  # universe_file: "config/universe_nyse.txt"
+
+dates:
+  # Global data range to request from yfinance / other sources
+  start: "2015-01-01"
+  end: "2025-01-01"
+  frequency: "1D"     # daily bars
+
+splits:
+  # Time-based splits for model training / evaluation
+  train:
+    start: "2015-01-01"
+    end:   "2020-12-31"
+  validation:
+    start: "2021-01-01"
+    end:   "2022-12-31"
+  test:
+    start: "2023-01-01"
+    end:   "2024-12-31"
+
+backtest:
+  initial_capital: 100000.0
+  # basic costs in basis points (bps = 0.01%)
+  transaction_cost_bps: 5      # 0.05% per trade
+  slippage_bps: 5              # 0.05% effective slippage
+  volatility_target_annual: 0.10   # for future vol-targeting logic
+
+paths:
+  # Pointers to other config files
+  features_config: "config/features.yaml"
+  labels_config: "config/labels.yaml"

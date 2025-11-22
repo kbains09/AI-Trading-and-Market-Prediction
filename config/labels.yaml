@@ -1,0 +1,69 @@
+# Configuration for target and pattern label generation
+
+targets:
+  # Future log return used for regression or directional classification
+  future_return_5d:
+    name: "future_logret_5"
+    horizon: 5             # 5 trading days ahead
+    method: "log_return"
+    price_field: "Close"
+
+  # Binarized direction from the 5-day future return
+  direction_5d:
+    name: "direction_5"
+    source: "future_logret_5"
+    type: "sign"
+    params:
+      up_threshold: 0.0        # > 0 → UP
+      down_threshold: 0.0      # <= 0 → DOWN
+
+  # Keep your existing 1-day next return + binary Target around for legacy models
+  future_return_1d:
+    name: "next_return_1d"
+    horizon: 1
+    method: "simple_return"
+    price_field: "Close"
+
+  binary_1d:
+    name: "Target"
+    source: "next_return_1d"
+    type: "binary_up"
+    params:
+      threshold: 0.0
+
+regimes:
+  # Trend vs mean-reversion regime based on rolling mean return and volatility
+  trend_vs_meanrev:
+    name: "regime_trend_meanrev"
+    method: "trend_vs_meanrev"
+    params:
+      return_window: 20             # rolling window for mean log return
+      vol_window: 20                # rolling window for volatility (e.g. vol_20)
+      upper_z: 0.75                 # thresholds in units of standardized trend-strength
+      lower_z: -0.75
+      labels:
+        trending: 1
+        mean_reverting: -1
+        neutral: 0
+
+patterns:
+  # Breakout pattern: price breaks above 20-day high on high volume
+  breakout_20d:
+    name: "is_breakout_20"
+    method: "breakout"
+    params:
+      lookback_high_window: 20      # breakout above last 20-day high
+      price_field: "Close"
+      eps: 0.002                    # 0.2% above prior high
+      volume_zscore_field: "vol_zscore_20"
+      volume_threshold: 1.5         # at least 1.5σ volume spike
+
+label_outputs:
+  # Columns that label_features.py should write into the final dataset
+  include:
+    - "future_logret_5"
+    - "direction_5"
+    - "next_return_1d"
+    - "Target"
+    - "regime_trend_meanrev"
+    - "is_breakout_20"
