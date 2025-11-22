@@ -7,13 +7,16 @@ import pandas as pd
 import pathlib as pl
 import typer
 import joblib
-from sklearn.metrics import accuracy_score
+import yaml
 
 app = typer.Typer(add_completion=False)
 
-# -----------------------------
+# Config & paths
+PROJECT_CONFIG = yaml.safe_load(pl.Path("config/project.yaml").read_text())
+DATA_LABELED = pl.Path(PROJECT_CONFIG["data"]["labeled_dir"])
+MODELS_DIR = pl.Path(PROJECT_CONFIG["data"].get("models_dir", "models/xgboost"))
+
 # Metrics & Helpers
-# -----------------------------
 def _max_drawdown(equity: pd.Series) -> float:
     """Max drawdown given an equity curve (cumprod-style, starting at 1.0)."""
     running_max = equity.cummax()
@@ -52,10 +55,7 @@ def _sha256(path: pl.Path) -> str:
     except Exception:
         return ""
 
-
-# -----------------------------
 # Core PnL Simulation
-# -----------------------------
 def simulate_trades(
     df: pd.DataFrame,
     *,
@@ -67,10 +67,10 @@ def simulate_trades(
 ) -> pd.DataFrame:
     """
     Assumptions:
-    - df has columns: 'next_return_1d' (forward return on *this* row), 'prediction' (∈ {-1,0,1} or {0,1})
-    - No in-function shifting: alignment must be handled upstream during labeling.
-    - Transaction cost is applied when position changes (simple bps of notional).
-    - Vol targeting scales today's position based on rolling realized vol of next_return_1d.
+    - df has columns:
+        'next_return_1d' (forward 1-day return on this row),
+        'prediction' (position ∈ {-1, 0, 1} or scaled float).
+    - No shifting inside; labeling already aligned.
     """
     out = df.copy()
 
@@ -78,7 +78,6 @@ def simulate_trades(
     pos = pd.to_numeric(out["prediction"], errors="coerce").fillna(0.0).astype(float)
 
     # 2) Volatility targeting (optional)
-    #    Target daily vol = vol_target_annual / sqrt(trading_days)
     if vol_target_annual and vol_target_annual > 0.0:
         daily_target = vol_target_annual / np.sqrt(trading_days)
         roll_std = out["next_return_1d"].rolling(roll_window).std(ddof=0)
@@ -91,8 +90,7 @@ def simulate_trades(
     # 3) Strategy return BEFORE costs
     out["strategy_return_gross"] = out["position"] * out["next_return_1d"]
 
-    # 4) Transaction costs (bps) on position changes
-    #    If you move from +1 to -1 with leverage, you "trade" 2 units, so pay 2 * cost.
+    # 4) Transaction costs on position changes
     if cost_bps and cost_bps > 0.0:
         delta_pos = out["position"].diff().abs().fillna(0.0)
         cost_rate = (cost_bps / 1e4)
@@ -108,15 +106,88 @@ def simulate_trades(
 
     return out
 
+# Strategy: use regime + direction
+def _build_positions_from_models(
+    df: pd.DataFrame,
+    regime_artifact: dict,
+    direction_artifact: dict,
+    up_thresh: float = 0.55,
+    down_thresh: float = 0.45,
+) -> pd.DataFrame:
+    """
+    For each row:
+      - predict regime (trend / neutral / mean-reversion)
+      - predict 5D direction (UP/DOWN probabilities)
+      - derive trading position:
+          * if regime == trend and p_up > up_thresh:  +1
+          * if regime == mean-reversion and p_up < down_thresh: -1
+          * else: 0
+    """
+    model_reg = regime_artifact["model"]
+    reg_feats = regime_artifact["feature_cols"]
+    regime_map = regime_artifact["regime_map"]
+    inv_regime_map = {v: k for k, v in regime_map.items()}
 
-# -----------------------------
+    model_dir = direction_artifact["model"]
+    dir_feats = direction_artifact["feature_cols"]
+
+    needed_cols = set(reg_feats) | set(dir_feats) | {"next_return_1d"}
+    missing = [c for c in needed_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns in labeled data: {missing[:8]}")
+
+    # Drop rows with NaNs in any used feature or next_return_1d
+    clean = df.dropna(subset=list(needed_cols)).copy().reset_index(drop=True)
+
+    X_reg = clean[reg_feats]
+    X_dir = clean[dir_feats]
+
+    # Regime predictions
+    reg_probs = model_reg.predict_proba(X_reg)  # shape (n, 3)
+    reg_class = reg_probs.argmax(axis=1)        # 0/1/2
+    reg_label_int = np.array([inv_regime_map.get(int(c), 0) for c in reg_class])
+
+    # Map to strings for inspection
+    reg_label_str = np.where(
+        reg_label_int == 1, "trend",
+        np.where(reg_label_int == -1, "mean_reversion", "neutral")
+    )
+    reg_conf = reg_probs.max(axis=1)
+
+    # Direction predictions
+    dir_probs = model_dir.predict_proba(X_dir)  # shape (n, 2) -> [DOWN, UP]
+    prob_down = dir_probs[:, 0]
+    prob_up = dir_probs[:, 1]
+    dir_label_bin = (prob_up >= 0.5).astype(int)  # 1 = UP, 0 = DOWN
+    dir_label_str = np.where(dir_label_bin == 1, "UP", "DOWN")
+
+    # Trading rule
+    position = np.zeros(len(clean), dtype=float)
+    is_trend = reg_label_int == 1
+    is_meanrev = reg_label_int == -1
+
+    position[(is_trend) & (prob_up > up_thresh)] = 1.0
+    position[(is_meanrev) & (prob_up < down_thresh)] = -1.0
+
+    # Attach to frame
+    clean["regime_label_int"] = reg_label_int
+    clean["regime_label_str"] = reg_label_str
+    clean["regime_conf"] = reg_conf
+
+    clean["direction_label"] = dir_label_str
+    clean["direction_prob_up"] = prob_up
+    clean["direction_prob_down"] = prob_down
+
+    clean["prediction"] = position
+
+    return clean
+
 # CLI Command
-# -----------------------------
 @app.command("run")
 def run_backtest(
-    model_dir: str = typer.Option("models/xgboost", help="Directory with trained models"),
-    feature_dir: str = typer.Option("data/labeled", help="Directory with labeled feature files"),
     ticker: str = typer.Option("AAPL", help="Ticker to backtest"),
+    model_dir: str = typer.Option(str(MODELS_DIR), help="Directory with trained models"),
+    feature_dir: str = typer.Option(str(DATA_LABELED), help="Directory with labeled feature files"),
     cost_bps: float = typer.Option(0.0, help="Round-trip transaction cost in basis points per unit turnover"),
     vol_target: float = typer.Option(0.0, help="Annualized volatility target (e.g., 0.10 for 10%%). 0 disables"),
     roll_window: int = typer.Option(20, help="Rolling window for vol targeting (days)"),
@@ -125,64 +196,69 @@ def run_backtest(
     trading_days: int = typer.Option(252, help="Periods per year (252 for daily)"),
 ):
     """
-    Run backtest for a specific ticker with optional transaction costs and volatility targeting.
-    Expects the labeled CSV to include:
-      - Date
-      - Target
-      - next_return_1d (forward 1-period return aligned to THIS row)
-      - feature columns used by the model
-    """
-    # Paths
-    model_path = pl.Path(model_dir) / f"{ticker}_xgb_model.pkl"
-    feature_path = pl.Path(feature_dir) / f"{ticker}_labeled.csv"
+    Backtest a regime + direction strategy for a specific ticker using:
+      - regime_trend_meanrev model (multi-class, trend/neutral/meanrev)
+      - direction_5 model (binary UP/DOWN)
 
-    if not model_path.exists():
-        typer.echo(f"❌ Missing model for {ticker}: {model_path}")
+    Uses labeled CSV:
+      data/labeled/{ticker}_labeled.csv
+    which must contain:
+      - Date
+      - next_return_1d
+      - direction_5 (optional, for accuracy metrics)
+      - regime_trend_meanrev (optional, for accuracy metrics)
+      - feature columns used by the models
+    """
+    model_dir_path = pl.Path(model_dir)
+    feature_dir_path = pl.Path(feature_dir)
+
+    regime_path = model_dir_path / f"{ticker}_regime_model.pkl"
+    direction_path = model_dir_path / f"{ticker}_direction_model.pkl"
+    feature_path = feature_dir_path / f"{ticker}_labeled.csv"
+
+    if not regime_path.exists():
+        typer.echo(f"❌ Missing regime model for {ticker}: {regime_path}")
+        raise typer.Exit(1)
+    if not direction_path.exists():
+        typer.echo(f"❌ Missing direction model for {ticker}: {direction_path}")
         raise typer.Exit(1)
     if not feature_path.exists():
         typer.echo(f"❌ Missing labeled data for {ticker}: {feature_path}")
         raise typer.Exit(1)
 
-    # Load model & data
-    model = joblib.load(model_path)
-    df = pd.read_csv(feature_path)
+    # Load models & data
+    regime_artifact = joblib.load(regime_path)
+    direction_artifact = joblib.load(direction_path)
+    df = pd.read_csv(feature_path, parse_dates=["Date"])
 
-    # Basic hygiene
-    # Keep Date as-is (string) for CSV roundtrip; parse later when plotting.
-    df = df.dropna(how="any").reset_index(drop=True)
-
-    # Split features/labels
-    if "Target" not in df.columns:
-        typer.echo("❌ Labeled file must include 'Target' column.")
-        raise typer.Exit(1)
-    if "next_return_1d" not in df.columns:
-        typer.echo("❌ Labeled file must include 'next_return_1d' column.")
-        raise typer.Exit(1)
-
-    # Ensure we don't accidentally feed label/date columns into the model
-    drop_cols = [c for c in ["Date", "Target"] if c in df.columns]
-    X = df.drop(columns=drop_cols, errors="ignore")
-    y = df["Target"]
-
-    # Predict signals
+    # Build positions from models
     try:
-        preds = model.predict(X)
+        df_signals = _build_positions_from_models(df, regime_artifact, direction_artifact)
     except Exception as e:
-        typer.echo(f"❌ Model prediction failed: {e}")
+        typer.echo(f"❌ Failed to build positions: {e}")
         raise typer.Exit(1)
 
-    df["prediction"] = preds
+    # Optional: basic label accuracies
+    if "direction_5" in df_signals.columns:
+        # Convert direction_5 (-1/+1) → 0/1
+        y_dir = (df_signals["direction_5"] == 1).astype(int)
+        y_hat_dir = (df_signals["direction_prob_up"] >= 0.5).astype(int)
+        dir_acc = float((y_dir == y_hat_dir).mean())
+        typer.echo(f"✅ Direction (5D) accuracy for {ticker}: {dir_acc:.4f}")
+    else:
+        dir_acc = float("nan")
 
-    # Sanity metric (not trading-aware)
-    try:
-        acc = accuracy_score(y, preds)
-        typer.echo(f"✅ Model Accuracy on {ticker}: {acc:.4f}")
-    except Exception:
-        typer.echo("⚠️ Could not compute accuracy_score (non-classification or invalid labels).")
+    if "regime_trend_meanrev" in df_signals.columns:
+        y_reg = df_signals["regime_trend_meanrev"].astype(int)
+        y_hat_reg = df_signals["regime_label_int"].astype(int)
+        regime_acc = float((y_reg == y_hat_reg).mean())
+        typer.echo(f"✅ Regime accuracy for {ticker}: {regime_acc:.4f}")
+    else:
+        regime_acc = float("nan")
 
-    # Simulate PnL (clean alignment; no shifting here)
+    # Run PnL simulation
     results = simulate_trades(
-        df,
+        df_signals,
         cost_bps=cost_bps,
         vol_target_annual=vol_target,
         roll_window=roll_window,
@@ -204,14 +280,18 @@ def run_backtest(
     strat_sharpe = _sharpe(strat_ret, rf_annual=rf_annual, trading_days=trading_days)
     strat_mdd = _max_drawdown(eq_strat)
     strat_turnover = _turnover(results["position"])
-    # Per-trade PnL proxy: position * next_return_1d when position != 0
-    trade_pnl = (results["position"] * results["next_return_1d"]).where(results["position"] != 0.0, 0.0)
+    trade_pnl = (results["position"] * results["next_return_1d"]).where(
+        results["position"] != 0.0, 0.0
+    )
     strat_hit_rate = _hit_rate(trade_pnl)
 
     # Console summary
     typer.echo(f"📈 Strategy Return: {final_strat_return:.4f}x")
     typer.echo(f"📉 Market Return:   {final_market_return:.4f}x")
-    typer.echo(f"📊 CAGR: {strat_cagr:.4%} | Vol: {strat_vol:.4%} | Sharpe: {strat_sharpe:.2f} | MaxDD: {strat_mdd:.2%}")
+    typer.echo(
+        f"📊 CAGR: {strat_cagr:.4%} | Vol: {strat_vol:.4%} | "
+        f"Sharpe: {strat_sharpe:.2f} | MaxDD: {strat_mdd:.2%}"
+    )
     typer.echo(f"🔁 Turnover: {strat_turnover:.4f} | 🎯 Hit rate: {strat_hit_rate:.2%}")
 
     # Save outputs
@@ -225,8 +305,10 @@ def run_backtest(
     manifest = {
         "ticker": ticker,
         "timestamp_utc": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "model_path": str(model_path),
-        "model_sha256": _sha256(model_path),
+        "regime_model_path": str(regime_path),
+        "regime_model_sha256": _sha256(regime_path),
+        "direction_model_path": str(direction_path),
+        "direction_model_sha256": _sha256(direction_path),
         "feature_path": str(feature_path),
         "feature_sha256": _sha256(feature_path),
         "cost_bps": cost_bps,
@@ -244,6 +326,8 @@ def run_backtest(
             "max_drawdown": strat_mdd,
             "turnover": strat_turnover,
             "hit_rate": strat_hit_rate,
+            "direction_accuracy": dir_acc,
+            "regime_accuracy": regime_acc,
         },
         "output_csv": str(outpath_csv),
     }
