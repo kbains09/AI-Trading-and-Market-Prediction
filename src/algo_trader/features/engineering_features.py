@@ -114,6 +114,11 @@ def engineer_features(
     df["OC_spread"] = (df["Close"] - df["Open"]).abs()
 
     df[f"vol_{vol_window}"] = _rolling_vol(df["return_1d"], vol_window)
+    
+    vol_z_window = 20
+    vol_ma = df["Volume"].rolling(vol_z_window, min_periods=vol_z_window).mean()
+    vol_std = df["Volume"].rolling(vol_z_window, min_periods=vol_z_window).std()
+    df["vol_zscore_20"] = (df["Volume"] - vol_ma) / vol_std
 
     df["next_return_1d"] = df["return_1d"].shift(-1)
     df["target_up"] = (df["next_return_1d"] > 0).astype(int)
