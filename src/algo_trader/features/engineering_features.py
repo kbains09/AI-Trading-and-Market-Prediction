@@ -10,6 +10,8 @@ import typer
 
 app = typer.Typer(add_completion=False)
 
+# ==== Internal Feature Calculations ====
+
 def _safe_pct_change(s: pd.Series, periods: int = 1) -> pd.Series:
     return s.pct_change(periods=periods).replace([np.inf, -np.inf], np.nan)
 
@@ -72,6 +74,8 @@ def _add_lags(df: pd.DataFrame, cols: List[str], lags: int = 3) -> pd.DataFrame:
 def _infer_ticker_from_path(path: pl.Path) -> str:
     return path.stem.split("_")[0].upper()
 
+# ==== Main Feature Engineering Logic ====
+
 def engineer_features(
     df: pd.DataFrame,
     rsi_window: int = 14,
@@ -124,6 +128,22 @@ def engineer_features(
     df = _add_lags(df, lag_cols)
     return df
 
+# ==== Public Wrapper for Import ====
+
+def generate_features(ticker: str, data_dir: str = "data/raw") -> pd.DataFrame:
+    """
+    Loads raw data CSV for given ticker and returns engineered features DataFrame.
+    """
+    infile = pl.Path(data_dir) / f"{ticker}.csv"
+    if not infile.exists():
+        raise FileNotFoundError(f"Raw file not found: {infile}")
+    
+    df = pd.read_csv(infile, parse_dates=["Date"])
+    df = df.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+    return engineer_features(df)
+
+# ==== CLI Feature Processing ====
+
 def process_file(
     infile: pl.Path,
     outdir: pl.Path,
@@ -137,7 +157,6 @@ def process_file(
     if not expected.issubset(set(df.columns)):
         raise ValueError(f"CSV must contain {expected} in {infile}")
 
-    # Convert expected numeric columns to float
     for col in expected:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -145,12 +164,9 @@ def process_file(
     df = df.dropna(subset=[date_col])
     df = df.rename(columns={date_col: "Date"})
     df = df.sort_values("Date").reset_index(drop=True)
-
-    # Drop any remaining rows with NaNs in numeric columns
     df = df.dropna(subset=list(expected))
 
     features = engineer_features(df)
-
     ticker = _infer_ticker_from_path(pl.Path(infile))
     outpath = outdir / f"{ticker}_features.csv"
     outdir.mkdir(parents=True, exist_ok=True)
