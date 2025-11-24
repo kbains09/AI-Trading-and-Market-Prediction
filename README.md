@@ -130,7 +130,7 @@ These plots are auto-generated from the backtest results.
 
 Growth of \$1 invested in the strategy (and optionally benchmark).
 
-![AAPL Equity Curve](reports/plots/AAPL_equity.png)
+![AAPL Equity Curve](data/backtests/plots/AAPL_equity.png)
 
 ---
 
@@ -138,7 +138,7 @@ Growth of \$1 invested in the strategy (and optionally benchmark).
 
 Peak-to-trough drawdowns over time.
 
-![AAPL Drawdown](reports/plots/AAPL_drawdown.png)
+![AAPL Drawdown](data/backtests/plots/AAPL_underwater.png)
 
 ---
 
@@ -146,7 +146,7 @@ Peak-to-trough drawdowns over time.
 
 Rolling risk-adjusted performance over a lookback window.
 
-![AAPL Rolling Sharpe](reports/plots/AAPL_rollsharpe.png)
+![AAPL Rolling Sharpe](data/backtests/plots/AAPL_rolling_sharpe_63d.png)
 
 ---
 
