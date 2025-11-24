@@ -1,0 +1,21 @@
+{
+  "portfolio_name": "CORE_4",
+  "tickers": [
+    "AAPL",
+    "TSLA",
+    "MSFT",
+    "BTC-USD"
+  ],
+  "timestamp_utc": "2025-11-24T01:40:54Z",
+  "metrics": {
+    "final_strategy_multiple": 1.8024676987690074,
+    "final_market_multiple": 4.497224344694032,
+    "cagr": 0.11021596996259864,
+    "ann_vol": 0.039330694094446526,
+    "sharpe": 2.6785185933534454,
+    "max_drawdown": -0.03441624736796545,
+    "turnover": NaN,
+    "hit_rate": NaN
+  },
+  "backtest_csv": "data/backtests/PORT_CORE_4_AAPL_TSLA_MSFT_BTC_USD_backtest.csv"
+}
