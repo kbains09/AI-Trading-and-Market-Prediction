@@ -57,13 +57,13 @@ poetry run python src/algo_trader/plot_backtest.py \
 ## Results & Visuals (AAPL Example)
 
 ### Equity Curve
-![AAPL Equity Curve](reports/plots/AAPL_equity.png)
+![AAPL Equity Curve](data/backtests/plots/AAPL_equity.png)
 
 ### Drawdown (Underwater Chart)
-![AAPL Drawdown](reports/plots/AAPL_drawdown.png)
+![AAPL Drawdown](data/backtests/plots/AAPL_underwater.png)
 
 ### Rolling Sharpe Ratio
-![AAPL Rolling Sharpe](reports/plots/AAPL_rollsharpe.png)
+![AAPL Rolling Sharpe](data/backtests/plots/AAPL_rolling_sharpe.png)
 
 ---
 
