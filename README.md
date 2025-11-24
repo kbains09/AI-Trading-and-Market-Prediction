@@ -57,8 +57,10 @@ poetry run python src/algo_trader/plot_backtest.py \
     --ticker AAPL \
     --no-show \
     --save-prefix reports/plots/AAPL
-    
+```
+
 Results & Visuals (AAPL Example)
+
 These plots are auto-generated from your backtest results.
 
 Equity Curve
