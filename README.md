@@ -199,3 +199,5 @@ poetry run python -V
     
 - Bacidore — _Algorithmic Trading with Python_
     
+
+
