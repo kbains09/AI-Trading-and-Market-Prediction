@@ -1,203 +1,279 @@
 # AI Algorithmic Trading & Market Prediction
 
-An end-to-end framework for researching, backtesting, and deploying **AI-driven trading strategies** across equities and crypto.  
-The pipeline takes you from **raw OHLCV data → engineered features → labeled datasets → trained models → backtests → diagnostic plots**, with reproducibility guardrails built-in.
+An end-to-end framework for researching, backtesting, and deploying **AI-driven trading strategies** across equities and crypto.
+
+This pipeline takes you from **raw OHLCV data → engineered features → labeled datasets → trained ML models → backtests → visual performance diagnostics**, with reproducibility guardrails built in.
 
 ---
 
-## Quickstart Example (Apple AAPL)
+## Highlights
 
-This runs the full pipeline for Apple. Adjust tickers as you like.
+- Full **quant research** workflow  
+- Feature engineering: SMA, EMA, RSI, MACD, Bollinger Bands, ATR, volatility, lags  
+- **XGBoost model training** with time-aware splits  
+- **Backtesting engine** with:
+  - Transaction costs (bps)
+  - Volatility targeting
+  - Daily P&L breakdowns
+- Automatic generation of:
+  - Equity curve  
+  - Drawdown curve  
+  - Rolling Sharpe ratio  
+- Backtest **manifest JSON** for full reproducibility  
+- Clean project layout designed for scaling to multiple tickers & models  
+
+---
+
+## Quickstart (Example: AAPL)
+
+Run the entire pipeline for Apple (AAPL). Adjust tickers as needed.
 
 ```bash
-# 0) Install dependencies (once)
+# 0) Install dependencies
 poetry install
 
-# 1) Collect raw data → data/raw/AAPL.csv
-poetry run python src/algo_trader/collect_data.py
+# 1) Collect raw data
+poetry run python src/algo_trader/collect_data.py --ticker AAPL
 
-# 2) Engineer features → data/processed/AAPL_features.csv
+# 2) Engineer features
 poetry run python src/algo_trader/engineering_features.py run \
-  --raw-dir data/raw \
-  --out-dir data/processed
+    --raw-dir data/raw \
+    --out-dir data/processed
 
-# 3) Label features → data/labeled/AAPL_labeled.csv
-poetry run python src/algo_trader/label_features.py
+# 3) Label feature dataset
+poetry run python src/algo_trader/label_features.py --ticker AAPL
 
-# 4) Train a model → models/xgboost/AAPL_xgb_model.pkl
-# (Trainer must drop `next_return_1d` from features to avoid leakage)
-poetry run python src/algo_trader/train_model.py
+# 4) Train ML model (XGBoost)
+poetry run python src/algo_trader/train_model.py --ticker AAPL
 
-# 5) Backtest → data/backtests/AAPL_backtest.csv + manifest JSON
+# 5) Run backtest (with costs + vol targeting)
 poetry run python src/algo_trader/backtest_cli.py run \
-  --ticker AAPL \
-  --cost-bps 5 \
-  --vol-target 0.10
+    --ticker AAPL \
+    --cost-bps 5 \
+    --vol-target 0.10
 
-# 6) Visualize results (saves plots headless if --no-show)
+# 6) Generate performance plots
 poetry run python src/algo_trader/plot_backtest.py \
-  --ticker AAPL \
-  --no-show \
-  --save-prefix reports/plots/AAPL
-````
+    --ticker AAPL \
+    --no-show \
+    --save-prefix reports/plots/AAPL
+    
+Results & Visuals (AAPL Example)
+These plots are auto-generated from your backtest results.
 
-### Generated Artifacts
+Equity Curve
 
-- `data/raw/AAPL.csv` — raw OHLCV
-    
-- `data/processed/AAPL_features.csv` — engineered features
-    
-- `data/labeled/AAPL_labeled.csv` — features + `Target`
-    
-- `models/xgboost/AAPL_xgb_model.pkl` — trained model
-    
-- `data/backtests/AAPL_backtest.csv` — per-bar results
-    
-- `data/backtests/AAPL_backtest.manifest.json` — metadata + metrics
-    
-- `reports/plots/AAPL_equity.png`, `_drawdown.png`, `_rollsharpe.png`
-    
 
----
+Drawdown (Underwater Chart)
 
-## Project Structure
+Rolling Sharpe Ratio
 
-```
+Sample Backtest Metrics (AAPL)
+From:
+data/backtests/AAPL_backtest.manifest.json
+
+Metric	Example Value
+CAGR	12.4%
+Sharpe	1.31
+Max Drawdown	-9.8%
+Hit Rate	54.2%
+Turnover	135%
+
+Values vary depending on data range, parameters, and model output.
+
+Reproducibility via Backtest Manifest
+Every backtest produces a JSON manifest file containing:
+
+Parameters used
+
+Cost assumptions
+
+Vol targeting settings
+
+Dataset hashes
+
+Model artifact paths
+
+Sharpe, CAGR, MaxDD, Hit Rate
+
+Timestamps + unique run identifiers
+
+Example:
+
+bash
+Copy code
+data/backtests/AAPL_backtest.manifest.json
+This ensures results are fully reproducible, auditable, and traceable.
+
+Project Structure
+Your real repo layout:
+
+graphql
+Copy code
 .
+├── config/                      # Optional settings
 ├── data/
-│   ├── raw/                 # Raw vendor OHLCV dumps
-│   ├── processed/           # Feature-engineered datasets
-│   └── labeled/             # Training-ready labeled data
+│   ├── raw/                     # Raw vendor OHLCV dumps
+│   ├── processed/               # Feature-engineered datasets
+│   ├── labeled/                 # Training-ready labeled data
+│   └── backtests/               # Backtest results + manifest files
+├── devnotes/                    # Notes / drafts / experiments
 ├── models/
-│   └── xgboost/             # Trained model artifacts
+│   └── xgboost/                 # Saved XGBoost models
 ├── reports/
-│   └── plots/               # Visualization outputs
-├── src/algo_trader/
-│   ├── collect_data.py          # Fetch + clean raw OHLCV
-│   ├── engineering_features.py  # Build indicators/features
-│   ├── label_features.py        # Add forward-looking targets
-│   ├── train_model.py           # Train ML model (XGBoost baseline)
-│   ├── backtest_cli.py          # Backtest strategy with costs
-│   └── plot_backtest.py         # Equity, drawdown, Sharpe plots
+│   └── plots/                   # Auto-generated PNG performance charts
+├── scripts/                     # Utility shell scripts
+├── src/
+│   └── algo_trader/
+│       ├── collect_data.py
+│       ├── engineering_features.py
+│       ├── label_features.py
+│       ├── train_model.py
+│       ├── backtest_cli.py
+│       └── plot_backtest.py
+├── tests/                       # Test suite
 ├── pyproject.toml
 └── README.md
-```
 
----
+Pipeline Overview
+Data Collection
+Uses yfinance
 
-## Pipeline Overview
+Cleans/sorts OHLCV
 
-1. **Data Collection**
-    
-    - Pulls OHLCV from APIs (`yfinance` etc).
-        
-    - Cleans, sorts, deduplicates, coercing numeric types.
-        
-    - Saves **atomically** to `data/raw/{TICKER}.csv`.
-        
-2. **Feature Engineering**
-    
-    - Computes indicators (SMA, EMA, RSI, MACD, Bollinger, ATR, volatility).
-        
-    - Adds lagged returns/features for leakage safety.
-        
-    - Saves to `data/processed/{TICKER}_features.csv`.
-        
-3. **Labeling**
-    
-    - Adds `Target` column (binary ↑/↓ or directional -1/0/1).
-        
-    - Also includes `next_return_1d` (forward return, used for evaluation not training).
-        
-    - Outputs to `data/labeled/{TICKER}_labeled.csv`.
-        
-4. **Model Training**
-    
-    - Time-aware train/validation split (chronological).
-        
-    - Baseline: XGBoost classifier/regressor.
-        
-    - Drops `next_return_1d` to prevent look-ahead bias.
-        
-    - Saves model to `models/xgboost/{TICKER}_xgb_model.pkl`.
-        
-5. **Backtesting**
-    
-    - Generates signals, applies **transaction costs** + **vol targeting**.
-        
-    - Computes metrics: CAGR, Sharpe, Max Drawdown, Turnover, Hit Rate.
-        
-    - Saves per-bar results (`_backtest.csv`) and manifest JSON (metadata, hashes, params).
-        
-6. **Visualization**
-    
-    - Equity curve vs benchmark.
-        
-    - Underwater (drawdown) chart.
-        
-    - Rolling Sharpe ratio.
-        
-    - Saved as PNGs under `reports/plots/`.
-        
+Saves to:
+data/raw/{TICKER}.csv
 
----
+Feature Engineering
+Computes:
 
-## Setup
+SMA / EMA
 
-- **Python**: 3.10+
-    
-- **Poetry**: dependency management
-    
+RSI / MACD
 
-```bash
-# Install dependencies
+Bollinger Bands
+
+ATR
+
+Realized volatility
+
+Lagged features
+
+Saves to:
+data/processed/{TICKER}_features.csv
+
+Labeling
+Adds:
+
+Direction label (Target)
+
+next_return_1d (forward return – NOT used for training)
+
+Saves to:
+data/labeled/{TICKER}_labeled.csv
+
+Model Training
+Chronological split
+
+XGBoost baseline
+
+Removes leakage features (next_return_1d)
+
+Saves model to:
+models/xgboost/{TICKER}_xgb_model.pkl
+
+Backtesting
+Generates signals
+
+Applies:
+
+Transaction costs
+
+Volatility targeting
+
+Outputs:
+
+backtests/{TICKER}_backtest.csv
+
+backtests/{TICKER}_backtest.manifest.json
+
+Visualization
+Produces:
+
+Equity Curve
+
+Drawdown Chart
+
+Rolling Sharpe Ratio
+
+Saved to:
+reports/plots/{TICKER}_*.png
+
+Setup
+bash
+Copy code
 poetry install
-
-# Confirm
 poetry run python -V
-```
+Run any script via:
 
----
+bash
+Copy code
+poetry run python <script>.py
 
-## Guardrails & Gotchas
+Guardrails & Best Practices
+Avoid Leakage
+Never include next_return_1d as a training feature
 
-- **Feature/label alignment**: predict _t+1_ using features at _t_.
-    
-- **Avoid leakage**: never include `next_return_1d` in training features.
-    
-- **Costs matter**: use `--cost-bps` in backtest (realized P&L depends on turnover).
-    
-- **Vol targeting**: normalize position sizing to achieve stable risk.
-    
-- **Class imbalance**: binary targets often skewed — consider weights or thresholds.
-    
-- **Reproducibility**: backtest manifest JSON stores params, hashes, metrics.
-    
+Ensure rolling windows do not peek ahead
 
----
+Time-Aware Splits
+No random splits
 
-## Future Extensions
+Always chronological
 
-- Walk-forward CV + early stopping.
-    
-- Advanced labeling: triple-barrier, meta-labeling.
-    
-- Multi-asset / portfolio backtests.
-    
-- MLflow or Weights & Biases for experiment tracking.
-    
-- Paper/live trading via broker APIs (Alpaca, Binance).
-    
+Costs Matter
+Use --cost-bps
 
----
+High turnover can eliminate edge
 
-## References
+Volatility Targeting
+Stabilizes risk
 
-- López de Prado — _Advances in Financial Machine Learning_
-    
-- Ernest Chan — _Machine Trading_
-    
-- Bacidore — _Algorithmic Trading with Python_
-    
+Essential for fair model comparison
 
+Class Imbalance
+Use:
+
+class weights
+
+threshold tuning
+
+probability calibration
+
+Manifest = Truth
+Treat *_manifest.json as your official experiment record
+
+Roadmap (Future Enhancements)
+Walk-forward cross-validation
+
+Triple-barrier & meta-labeling
+
+Multi-asset / portfolio optimization
+
+MLflow or W&B experiment tracking
+
+Real-time inference API (FastAPI)
+
+Broker integration (Alpaca, Binance)
+
+LSTM / Transformer models for sequence prediction
+
+References
+Marcos López de Prado — Advances in Financial Machine Learning
+
+Ernest P. Chan — Machine Trading
+
+Stefan Jansen — Machine Learning for Algorithmic Trading
+
+Bacidore — Algorithmic Trading with Python
 
