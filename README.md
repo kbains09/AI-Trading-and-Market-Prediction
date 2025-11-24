@@ -63,7 +63,7 @@ poetry run python src/algo_trader/plot_backtest.py \
 ![AAPL Drawdown](data/backtests/plots/AAPL_underwater.png)
 
 ### Rolling Sharpe Ratio
-![AAPL Rolling Sharpe](data/backtests/plots/AAPL_rolling_sharpe.png)
+![AAPL Rolling Sharpe](data/backtests/plots/AAPL_rolling_sharpe_63d.png)
 
 ---
 
