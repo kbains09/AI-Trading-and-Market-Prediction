@@ -158,8 +158,11 @@ def main(
 
     out_path = model_dir_path / f"{ticker}_regime_model.pkl"
     joblib.dump(artifact, out_path)
+    json_path = model_dir_path / f"{ticker}_direction_model.json"
+    model.save_model(json_path)
 
     typer.echo(f"[train_regime] 💾 Saved regime model → {out_path}")
+    typer.echo(f"[train_regime] 💾 Saved regime model → {json_path}")
 
 
 if __name__ == "__main__":

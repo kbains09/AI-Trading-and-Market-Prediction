@@ -13,7 +13,6 @@ from ..features.feature_set import LIVE_FEATURE_COLUMNS
 
 app = typer.Typer(add_completion=False)
 
-
 def _chronological_split(
     df: pd.DataFrame,
     train_frac: float = 0.6,
@@ -149,8 +148,11 @@ def main(
 
     out_path = model_dir_path / f"{ticker}_direction_model.pkl"
     joblib.dump(artifact, out_path)
+    json_path = model_dir_path / f"{ticker}_direction_model.json"
+    model.save_model(json_path) 
 
     typer.echo(f"[train_direction] 💾 Saved direction model → {out_path}")
+    typer.echo(f"[train_direction] 💾 Saved direction model → {json_path}")
 
 
 if __name__ == "__main__":
