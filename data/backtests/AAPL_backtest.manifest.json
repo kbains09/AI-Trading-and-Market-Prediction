@@ -1,6 +1,6 @@
 {
   "ticker": "AAPL",
-  "timestamp_utc": "2025-12-02T23:48:15+00:00",
+  "timestamp_utc": "2025-12-03T00:35:13+00:00",
   "regime_model_path": "/Users/kiratbains/WorkSpace/AI-Trading-and-Market-Prediction/models/xgboost/AAPL_regime_model.pkl",
   "regime_model_sha256": "a67d3e9cee580522daa117bfca638fc71b72b06a1cb478e598ae4788007d1858",
   "direction_model_path": "/Users/kiratbains/WorkSpace/AI-Trading-and-Market-Prediction/models/xgboost/AAPL_direction_model.pkl",
