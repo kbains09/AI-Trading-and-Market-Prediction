@@ -1,0 +1,6 @@
+ticker,strategy_return,market_return,cagr,sharpe,max_drawdown,hit_rate,turnover,cost_bps,vol_target
+AAPL,,,,,,,,10.0,
+BTC-USD,,,,,,,,10.0,
+MSFT,,,,,,,,10.0,
+PORT_CORE_4_AAPL_TSLA_MSFT_BTC_USD,,,,,,,,,
+TSLA,,,,,,,,10.0,

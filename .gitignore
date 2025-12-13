@@ -3,7 +3,6 @@ data/processed
 data/labeled
 models/xgboost
 __init__.py
-reports/
 src/algo_trader/__pycache__
 src/algo_trader/visualize/__pycache__
 src/algo_trader/features/__pycache__
