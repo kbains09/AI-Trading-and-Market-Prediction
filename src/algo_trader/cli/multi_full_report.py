@@ -1,5 +1,3 @@
-# src/algo_trader/cli/multi_full_report.py
-
 from __future__ import annotations
 
 import subprocess
